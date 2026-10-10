@@ -1,4 +1,4 @@
-import os, json, uuid, hashlib, hmac, time, io, re, secrets
+import os, json, uuid, hashlib, hmac, time, io, re, secrets, asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
@@ -11,6 +11,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from openpyxl import Workbook
 from reportlab.pdfgen import canvas
 from .individual_pdf import individual_pdf
+from .report_data import household, coordinates, matching_keys, COUNT_FIELDS
+from .photo_maintenance import cleanup_photos
 
 ROOT = Path(__file__).resolve().parent
 NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adultos','Medicamentos','Ropa y cobijas','Colchones o lugar para dormir','Materiales para reparar la vivienda','Artículos de higiene','Otra necesidad']
@@ -44,14 +46,30 @@ async def lifespan(app):
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
             c.execute(migration.read_text())
     photo_dir()
-    yield
+    # Backfill matching keys from real legacy data; do not invent household counts.
+    with db() as c:
+        for report in c.execute("SELECT id,data FROM reports WHERE dedup_keys='{}'").fetchall():
+            data=report['data'];data['coordinates']=coordinates(data['maps'])
+            c.execute('UPDATE reports SET data=%s::jsonb,dedup_keys=%s WHERE id=%s',(json.dumps(data),matching_keys(data,signing),report['id']))
+    await asyncio.to_thread(cleanup_photos,db,photo_dir())
+    async def maintain():
+        while True:
+            await asyncio.sleep(30)
+            try: await asyncio.to_thread(cleanup_photos,db,photo_dir())
+            except psycopg.Error: pass  # Retry after transient database interruption.
+    worker=asyncio.create_task(maintain())
+    try: yield
+    finally:
+        worker.cancel()
+        try: await worker
+        except asyncio.CancelledError: pass
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
 
 @app.middleware('http')
 async def headers(request, call_next):
-    if request.method in ('POST','PATCH'):
+    if request.method in ('POST','PATCH','DELETE'):
         maximum = 16*1024*1024 if request.url.path == '/api/reports' else 4096
         body = bytearray()
         async for chunk in request.stream():
@@ -106,7 +124,9 @@ def validate(raw):
     if not u.path.strip('/'): raise HTTPException(422,'Enlace Maps incompleto')
     needs = raw.get('needs',[])
     if not isinstance(needs,list) or any(n not in NEEDS for n in needs): raise HTTPException(422,'Necesidad inválida')
-    data['needs'] = list(dict.fromkeys(needs)); return data
+    data['needs'] = list(dict.fromkeys(needs))
+    data.update(household(raw));data['coordinates']=coordinates(data['maps'])
+    return data
 
 def clean_photo(content):
     if len(content) > 5*1024*1024: raise HTTPException(422,'Cada foto debe pesar menos de 5 MB')
@@ -159,7 +179,7 @@ async def submit(request: Request):
     if os.getenv('PUBLIC_REPORTS_ENABLED','false') != 'true': raise HTTPException(503,'Recepción de reportes aún no habilitada')
     limit(request,'submit',20)
     if int(request.headers.get('content-length','0')) > 16*1024*1024: raise HTTPException(413)
-    form = await request.form(max_files=3,max_fields=25)
+    form = await request.form(max_files=3,max_fields=40)
     if form.get('website'): raise HTTPException(422,'Solicitud inválida')
     try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
     except ValueError: raise HTTPException(422,'Clave de envío inválida')
@@ -172,22 +192,26 @@ async def submit(request: Request):
     if len(photos)>3: raise HTTPException(422,'Máximo tres fotos')
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
     fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/'))
+    dedup=matching_keys(data,signing)
     saved = []
     try:
         with db() as c:
             c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(key,))
-            c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,1))',(fingerprint,))
+            for match_key in dedup:
+                c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,1))',(match_key,))
             existing = c.execute('SELECT id,request_hash FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
             if existing:
                 if existing['request_hash'] != digest: raise HTTPException(409,'La clave ya se utilizó con otro contenido')
                 return {'id':existing['id'],'notice':NOTICE}
-            duplicate = c.execute('SELECT 1 FROM reports WHERE fingerprint=%s LIMIT 1',(fingerprint,)).fetchone()
+            identical=c.execute('SELECT 1 FROM reports WHERE request_hash=%s LIMIT 1',(digest,)).fetchone()
+            if identical: raise HTTPException(409,'No se guardó otro reporte: el envío coincide exactamente con uno previo. Solicite revisión al administrador si necesita corregirlo.')
+            duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR fingerprint=%s LIMIT 1',(dedup,fingerprint)).fetchone()
             if duplicate and form.get('new_damage') != 'yes':
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
             for photo in photos:
                 filename = uuid.uuid4().hex+'.jpg'; path = photo_dir()/filename
                 path.write_bytes(photo); path.chmod(0o600); saved.append(filename)
-            r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved))).fetchone()
+            r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup)).fetchone()
         return {'id':r['id'],'notice':NOTICE}
     except Exception:
         for filename in saved: (photo_dir()/filename).unlink(missing_ok=True)
@@ -196,6 +220,9 @@ async def submit(request: Request):
 def rows(request, all_rows=False):
     clauses=[]; values=[]
     if not all_rows:
+        archive=request.query_params.get('archive','active')
+        if archive not in ('active','archived','all'): raise HTTPException(422,'Filtro de archivo inválido')
+        if archive!='all': clauses.append('archived_at IS '+('NULL' if archive=='active' else 'NOT NULL'))
         for key in ('province','district','township','community','status','need','estado_ayuda'):
             value = request.query_params.get(key,'').strip()
             if not value: continue
@@ -216,18 +243,24 @@ def reports(request: Request, token=Depends(admin)):
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
     payload = await request.json()
-    if not isinstance(payload,dict) or not payload or set(payload)-{'status','estado_ayuda','observacion'}:
+    if not isinstance(payload,dict) or not payload or set(payload)-{'status','estado_ayuda','observacion','archived'}:
         raise HTTPException(422,'Cambio inválido')
     if 'status' in payload and payload['status'] not in ('pendiente','contactado','visitado'):
         raise HTTPException(422,'Estado operativo inválido')
     if 'estado_ayuda' in payload and (not isinstance(payload['estado_ayuda'],str) or payload['estado_ayuda'] not in HELP_STATES):
         raise HTTPException(422,'Estado de ayuda inválido')
     if 'observacion' in payload and 'estado_ayuda' not in payload: raise HTTPException(422,'Seleccione el estado de ayuda')
+    if 'archived' in payload and not isinstance(payload['archived'],bool): raise HTTPException(422,'Archivo inválido')
     note = payload.get('observacion')
     if note is not None and (not isinstance(note,str) or len(note)>500): raise HTTPException(422,'Observación: máximo 500 caracteres')
     with db() as c:
         report=c.execute('SELECT * FROM reports WHERE id=%s FOR UPDATE',(report_id,)).fetchone()
         if not report: raise HTTPException(404)
+        if 'archived' in payload:
+            if payload['archived'] and not report['archived_at']:
+                c.execute('UPDATE reports SET archived_at=now(),archived_by=%s WHERE id=%s',(ADMIN_USERNAME,report_id))
+            elif not payload['archived']:
+                c.execute('UPDATE reports SET archived_at=NULL,archived_by=NULL WHERE id=%s',(report_id,))
         if 'status' in payload: c.execute('UPDATE reports SET status=%s WHERE id=%s',(payload['status'],report_id))
         if 'estado_ayuda' in payload:
             note=report['ayuda_observacion'] if note is None else note.strip()
@@ -240,6 +273,24 @@ async def status(report_id: str, request: Request, token=Depends(admin)):
                       'observacion',%s::text,'administrador',%s::text)) WHERE id=%s""",
                     (payload['estado_ayuda'],note,ADMIN_USERNAME,payload['estado_ayuda'],note,ADMIN_USERNAME,report_id))
     return {'ok':True}
+
+@app.delete('/api/admin/reports/{report_id}')
+async def delete_report(report_id: str, request: Request, token=Depends(admin)):
+    payload=await request.json()
+    if not isinstance(payload,dict) or payload.get('confirm') != 'ELIMINAR '+report_id:
+        raise HTTPException(422,'Confirme escribiendo ELIMINAR seguido del número de reporte')
+    with db() as c:
+        report=c.execute('SELECT photos FROM reports WHERE id=%s FOR UPDATE',(report_id,)).fetchone()
+        if not report: raise HTTPException(404)
+        for name in report['photos']:
+            c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(name,))
+        c.execute('INSERT INTO deleted_reports(id) VALUES (%s) ON CONFLICT DO NOTHING',(report_id,))
+        c.execute('DELETE FROM reports WHERE id=%s',(report_id,))
+    # After commit, the private routes can no longer serve the deleted photos.
+    await asyncio.to_thread(cleanup_photos,db,photo_dir())
+    with db() as c:
+        pending=c.execute('SELECT count(*) AS n FROM photo_cleanup WHERE filename=ANY(%s)',(report['photos'],)).fetchone()['n']
+    return JSONResponse({'deleted':True,'photos_pending':pending,'message':'Datos eliminados. '+('Limpieza física de fotos pendiente; se reintentará automáticamente.' if pending else 'Fotografías eliminadas.')},status_code=202 if pending else 200)
 
 @app.get('/api/admin/reports/{report_id}/pdf')
 def report_pdf(report_id: str, token=Depends(admin)):
@@ -256,12 +307,18 @@ def photo(report_id: str, filename: str, token=Depends(admin)):
 def workbook(records, filters, anonymous=False):
     wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
     columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre de persona/familia','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
+    columns += ['Nombre de familia','Total de personas afectadas',*COUNT_FIELDS.values()]
+    if not anonymous: columns += ['Latitud','Longitud','Archivado']
     columns += ['Estado de ayuda','Fecha del último seguimiento']
     if not anonymous: columns.append('Observación de seguimiento')
     sheet.append(columns)
     for r in records:
         d=r['data']; base=[r['id'],r['created_at'].isoformat()]
         values = base+[d['province'],d['district'],d['township'],'','',', '.join(d['needs']),'',r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
+        values += ['' if anonymous else d.get('family_name',''),d.get('total_people'),*[d.get(k) for k in COUNT_FIELDS]]
+        if not anonymous:
+            point=d.get('coordinates') or {}
+            values += [point.get('latitude'),point.get('longitude'),'Sí' if r.get('archived_at') else 'No']
         updated=r.get('ayuda_actualizada_at')
         values += [HELP_STATES[r.get('estado_ayuda','pendiente_confirmar')],updated.isoformat() if updated else '']
         if not anonymous: values.append(r.get('ayuda_observacion',''))
@@ -277,7 +334,11 @@ def workbook(records, filters, anonymous=False):
     out=io.BytesIO(); wb.save(out); return out.getvalue()
 @app.get('/api/admin/export/{kind}')
 def export(kind: str, request: Request, token=Depends(admin)):
-    if kind not in ('master','area','anonymous','summary'): raise HTTPException(404)
+    if kind not in ('master','area','anonymous','summary','erasures'): raise HTTPException(404)
+    if kind=='erasures':
+        with db() as c: ledger=c.execute('SELECT id,deleted_at FROM deleted_reports ORDER BY deleted_at').fetchall()
+        content=json.dumps([{'id':r['id'],'deleted_at':r['deleted_at'].isoformat()} for r in ledger])
+        return Response(content,media_type='application/json',headers={'Content-Disposition':'attachment; filename=REPORTAPA_ELIMINACIONES.json'})
     records=rows(request,all_rows=kind=='master'); filters='Todos los reportes' if kind=='master' else json.dumps(dict(request.query_params),ensure_ascii=False)
     if kind=='summary':
         out=io.BytesIO(); pdf=canvas.Canvas(out); y=790

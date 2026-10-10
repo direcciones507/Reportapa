@@ -4,7 +4,7 @@
 
 El código está preparado en el PR #1; no se fusionó, desplegó ni abrió recepción pública. La consulta de lectura al inventario de Railway no encontró un proyecto llamado ReportaPA. Hay proyectos con nombres genéricos: no se les atribuye ReportaPA sin evidencia ni se inspeccionan/modifican servicios de otros proyectos. El propietario debe identificar un proyecto/servicio dedicado si ya existe o autorizar su creación posteriormente. No se crearon ni contrataron recursos.
 
-El acceso del propietario usa exclusivamente `Ayudapanama` y una contraseña privada, sin Google, correo ni registro. Las migraciones siguen aplicándose de forma idempotente al iniciar el mismo servicio: 001 reportes, 002 seguimiento de ayuda, 003 revocación de sesiones. No se crea otra base de datos ni otro sistema de acceso.
+El acceso del propietario usa exclusivamente `Ayudapanama` y una contraseña privada, sin Google, correo ni registro. Las migraciones siguen aplicándose de forma idempotente al iniciar el mismo servicio: 001 reportes, 002 seguimiento de ayuda, 003 revocación de sesiones y 004 hogar/archivo/limpieza de fotos. No se crea otra base de datos ni otro sistema de acceso.
 
 ## Configuración preparada para Railway
 
@@ -71,3 +71,5 @@ Repetir en cada dispositivo, una vez autorizado el despliegue de prueba:
 - [Volúmenes y respaldos](https://docs.railway.com/volumes/reference)
 - [Backup y restauración PostgreSQL](https://docs.railway.com/volumes/backups)
 - [Conexión PostgreSQL](https://docs.railway.com/databases/postgresql)
+
+Antes de producción revisar [Conservación y recuperación](conservacion-y-recuperacion.md), aprobar la retención de respaldos, verificar composición del hogar y confirmar archivo/eliminación con casos de prueba.

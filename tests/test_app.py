@@ -9,7 +9,7 @@ from app import main as m
 
 @pytest.fixture
 def data():
-    return dict(name='Familia Prueba',phone='+507 6123-4567',province='Veraguas',district='Santiago',township='Santiago',community='Sector prueba',maps='https://maps.app.goo.gl/abc123',damage='Daño de prueba',needs=['Agua potable'])
+    return dict(name='Responsable Prueba',family_name='Familia Prueba',total_people='4',phone='+507 6123-4567',province='Veraguas',district='Santiago',township='Santiago',community='Sector prueba',maps='https://maps.app.goo.gl/abc123',damage='Daño de prueba',needs=['Agua potable'])
 
 def test_validation(data):
     assert m.validate(data)['phone']=='61234567'
@@ -53,7 +53,7 @@ def live(monkeypatch,tmp_path):
     monkeypatch.setenv('COOKIE_SECURE','false')
     monkeypatch.setenv('PUBLIC_REPORTS_ENABLED','true')
     with TestClient(m.app) as client:
-        with m.db() as c: c.execute('TRUNCATE reports,request_limits,admin_sessions')
+        with m.db() as c: c.execute('TRUNCATE reports,request_limits,admin_sessions,photo_cleanup,deleted_reports')
         yield client
 
 def submit(client,data,key=None,extra=None,photos=None):
@@ -65,8 +65,8 @@ def test_postgres_flow(live,data):
     key=str(uuid.uuid4());r=submit(live,data,key);assert r.status_code==200,r.text;identifier=r.json()['id'];assert identifier.startswith('RPA-')
     assert submit(live,data,key).json()['id']==identifier
     assert submit(live,{**data,'damage':'changed'},key).status_code==409
-    dup=submit(live,data);assert dup.status_code==409 and 'id' not in dup.json()
-    assert submit(live,data,extra={'new_damage':'yes'}).status_code==200
+    dup=submit(live,{**data,'damage':'Posibles daños nuevos'});assert dup.status_code==409 and 'id' not in dup.json()
+    assert submit(live,{**data,'damage':'Daños nuevos en el techo'},extra={'new_damage':'yes'}).status_code==200
     login=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'});assert login.status_code==200
     csrf={'x-csrf-token':login.json()['csrf']}
     assert live.get('/api/admin/reports').json()['total']==2
