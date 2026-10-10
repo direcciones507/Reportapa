@@ -4,6 +4,10 @@ import json
 import os
 import shutil
 import subprocess
+import socket
+import sys
+import time
+import httpx
 import uuid
 from pathlib import Path
 
@@ -51,7 +55,7 @@ def test_logical_backup_restore_isolated(live,data,tmp_path,monkeypatch):
     image=io.BytesIO();Image.new('RGB',(20,20),(10,90,180)).save(image,'PNG')
     identifier=submit(live,data,photos={'photos':('discardable.png',image.getvalue(),'image/png')}).json()['id']
     csrf=login(live)
-    assert live.patch('/api/admin/reports/'+identifier,json={'estado_ayuda':'parcial','ayuda_observacion':'Solo prueba'},headers=csrf).status_code==200
+    assert live.patch('/api/admin/reports/'+identifier,json={'estado_ayuda':'parcial','observacion':'Solo prueba'},headers=csrf).status_code==200
     report=live.get('/api/admin/reports').json()['reports'][0]
     photos=m.photo_dir();snapshot=tmp_path/'snapshot';snapshot.mkdir(mode=0o700)
     shutil.copytree(photos,snapshot/'photos',ignore=shutil.ignore_patterns('snapshot'))
@@ -88,6 +92,30 @@ def test_logical_backup_restore_isolated(live,data,tmp_path,monkeypatch):
                 assert restored.get('/api/admin/export/master').content.startswith(b'PK')
                 assert restored.get('/api/admin/export/anonymous').content.startswith(b'PK')
                 assert len(PdfReader(io.BytesIO(restored.get('/api/admin/reports/'+identifier+'/pdf').content)).pages)==1
+        # Real process restarts bind only loopback; no public deployment.
+        for _ in range(2):
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
+            process=subprocess.Popen([sys.executable,'-m','uvicorn','app.main:app','--host','127.0.0.1','--port',str(port),'--no-access-log'],env=os.environ.copy(),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            try:
+                with httpx.Client(base_url=f'http://127.0.0.1:{port}',timeout=2) as running:
+                    deadline=time.monotonic()+20
+                    while True:
+                        assert process.poll() is None, 'Preproduction process stopped during startup'
+                        try:
+                            if running.get('/health').status_code==200:break
+                        except httpx.TransportError:pass
+                        assert time.monotonic()<deadline, 'Preproduction process health timeout'
+                        time.sleep(0.1)
+                    assert running.post('/api/reports').status_code==503
+                    login(running)
+                    assert running.get(photo_url).content==(snapshot/'photos'/r['photos'][0]).read_bytes()
+                    assert running.get('/api/admin/reports').json()['total']==1
+            finally:
+                process.terminate()
+                try:process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill();process.wait(timeout=5)
         with TestClient(m.app) as restored:
             restored_csrf=login(restored)
             for entry in json.loads((snapshot/'erasures.json').read_text()):

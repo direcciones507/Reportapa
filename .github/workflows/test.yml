@@ -32,3 +32,4 @@ jobs:
       - run: python -m pytest -q
       - run: node --check app/static/citizen.js && node --check app/static/admin.js
       - run: node --test tests/test_followup.js
+      - run: docker build --tag reportapa-ci .
