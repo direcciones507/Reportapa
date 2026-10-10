@@ -38,6 +38,7 @@ def test_closed_and_auth(monkeypatch):
     monkeypatch.delenv('PUBLIC_REPORTS_ENABLED',raising=False)
     client=TestClient(m.app)
     assert client.post('/api/reports').status_code==503
+    assert client.post('/api/admin/login',content=b'x'*4097).status_code==413
     for path in ['/api/admin/reports','/api/admin/export/master','/api/admin/export/area','/api/admin/export/anonymous','/api/admin/export/summary','/api/admin/reports/RPA-1/photos/file.jpg']:
         assert client.get(path).status_code==401
     assert client.get('/').status_code==200

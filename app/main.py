@@ -35,6 +35,13 @@ app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
 
 @app.middleware('http')
 async def headers(request, call_next):
+    if request.method in ('POST','PATCH'):
+        maximum = 16*1024*1024 if request.url.path == '/api/reports' else 4096
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > maximum: return JSONResponse({'detail':'Solicitud demasiado grande'},status_code=413)
+        request._body = bytes(body)
     response = await call_next(request)
     response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','X-Robots-Tag':'noindex, nofollow','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
     return response
@@ -191,8 +198,7 @@ def workbook(records, filters, anonymous=False):
     sheet.append(columns)
     for r in records:
         d=r['data']; base=[r['id'],r['created_at'].isoformat()]
-        values=base+[d['province'],d['district'],d['township'],d['community'],', '.join(d['needs']),r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
-        if anonymous: values=base+[d['province'],d['district'],d['township'],'', '',', '.join(d['needs']),'',r['status']]
+        values = base+[d['province'],d['district'],d['township'],'','',', '.join(d['needs']),'',r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
         sheet.append(values)
         for cell in sheet[sheet.max_row]:
             if isinstance(cell.value,str): cell.data_type='s'
