@@ -19,6 +19,8 @@ jobs:
         ports: ['5432:5432']
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      REPORTAPA_RECOVERY_TEST: disposable-ci
+      PUBLIC_REPORTS_ENABLED: "false"
       DATABASE_URL: postgresql://reportapa:test-only@localhost:5432/reportapa_test
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +28,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt pytest httpx pypdf==5.9.0
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: python -m pytest -q
       - run: node --check app/static/citizen.js && node --check app/static/admin.js
       - run: node --test tests/test_followup.js

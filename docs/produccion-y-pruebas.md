@@ -73,3 +73,5 @@ Repetir en cada dispositivo, una vez autorizado el despliegue de prueba:
 - [Conexión PostgreSQL](https://docs.railway.com/databases/postgresql)
 
 Antes de producción revisar [Conservación y recuperación](conservacion-y-recuperacion.md), aprobar la retención de respaldos, verificar composición del hogar y confirmar archivo/eliminación con casos de prueba.
+
+Auditoría ampliada, costos y ensayo lógico de recuperación: [preproduccion-infraestructura.md](preproduccion-infraestructura.md).
