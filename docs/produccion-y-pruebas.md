@@ -52,7 +52,7 @@ No enviar contraseñas por chat ni incluirlas en el repositorio. No se generan s
 
 Respaldar por separado PostgreSQL (reportes, seguimiento y sesiones) y el volumen privado de fotos. Las referencias de fotos viven en la base: mantener fechas de corte compatibles. Para una copia coherente, cerrar temporalmente el envío y evitar cambios administrativos durante la toma de ambos respaldos cuando se autorice esa operación. Elegir una política que permita recuperar tanto registros como imágenes; un volumen persistente solo no sustituye respaldo.
 
-Verificar disponibilidad/costos de backups en el plan real antes de contratarlos. No se habilitaron backups ni se restauró nada en servicios reales durante este bloque. La primera restauración debe probarse en entorno aislado autorizado, con conteos, fotos privadas y PDF; nunca restaurar encima de otro proyecto.
+Verificar disponibilidad/costos de backups en el plan real antes de contratarlos. No se habilitaron backups ni se restauró nada en servicios reales durante este bloque. Los snapshots nativos de Railway solo se restauran dentro del mismo proyecto y entorno. Para ensayar recuperación sin tocar producción, preparar una exportación lógica de PostgreSQL y copia privada de fotos hacia un entorno aislado autorizado; comprobar conteos, fotos y PDF. Una restauración nativa del entorno original requiere autorización específica y revisión del cambio staged antes de aplicarlo. Nunca restaurar encima de otro proyecto.
 
 ## Checklist físico corto: Android, iPhone y tablet
 
