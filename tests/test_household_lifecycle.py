@@ -39,7 +39,10 @@ def test_household_exports_and_pdf(data,tmp_path):
     assert row['Nombre de familia']=='Familia Prueba' and row['Total de personas afectadas']==4
     assert row['0 a 5 años']==1 and row['Personas con discapacidad']==1 and row['Latitud']==8.1
     anon=load_workbook(io.BytesIO(m.workbook([r],'todos',True)));anonymous=str(list(anon['Reportes'].values))
-    for secret in ['Familia Prueba','Responsable Prueba','61234567','8.1','-80.9']:assert secret not in anonymous
+    for secret in ['Familia Prueba','Responsable Prueba','61234567']:assert secret not in anonymous
+    anonymous_rows=list(anon['Reportes'].values)
+    assert 'Latitud' not in anonymous_rows[0] and 'Longitud' not in anonymous_rows[0]
+    assert not any(value in (8.1,-80.9) for value in anonymous_rows[1])
     text=PdfReader(io.BytesIO(m.individual_pdf(r,tmp_path,m.HELP_STATES))).pages[0].extract_text()
     assert 'Familia Prueba' in text and 'Total de personas afectadas' in text and '0 a 5 años: 1' in text
     # Legacy records remain readable without fabricated household data.
