@@ -53,7 +53,7 @@ def live(monkeypatch,tmp_path):
     monkeypatch.setenv('COOKIE_SECURE','false')
     monkeypatch.setenv('PUBLIC_REPORTS_ENABLED','true')
     with TestClient(m.app) as client:
-        with m.db() as c: c.execute('TRUNCATE reports,request_limits')
+        with m.db() as c: c.execute('TRUNCATE reports,request_limits,admin_sessions')
         yield client
 
 def submit(client,data,key=None,extra=None,photos=None):
@@ -67,7 +67,7 @@ def test_postgres_flow(live,data):
     assert submit(live,{**data,'damage':'changed'},key).status_code==409
     dup=submit(live,data);assert dup.status_code==409 and 'id' not in dup.json()
     assert submit(live,data,extra={'new_damage':'yes'}).status_code==200
-    login=live.post('/api/admin/login',json={'password':'test-password-123456'});assert login.status_code==200
+    login=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'});assert login.status_code==200
     csrf={'x-csrf-token':login.json()['csrf']}
     assert live.get('/api/admin/reports').json()['total']==2
     assert live.get('/api/admin/reports?province=Coclé').json()['total']==0
@@ -83,15 +83,15 @@ def test_postgres_flow(live,data):
 def test_private_photos(live,data):
     out=io.BytesIO();Image.new('RGB',(20,20)).save(out,'PNG')
     r=submit(live,data,photos={'photos':('test.png',out.getvalue(),'image/png')});assert r.status_code==200,r.text
-    live.post('/api/admin/login',json={'password':'test-password-123456'})
+    live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'})
     report=live.get('/api/admin/reports').json()['reports'][0];url='/api/admin/reports/'+report['id']+'/photos/'+report['photos'][0]
     assert live.get(url).status_code==200
     assert TestClient(m.app).get(url).status_code==401
     assert live.get('/static/'+report['photos'][0]).status_code==404
 
 def test_rate_limit(live):
-    for _ in range(10): assert live.post('/api/admin/login',json={'password':'wrong'}).status_code==401
-    assert live.post('/api/admin/login',json={'password':'wrong'}).status_code==429
+    for _ in range(10): assert live.post('/api/admin/login',json={'username':'Ayudapanama','password':'wrong'}).status_code==401
+    assert live.post('/api/admin/login',json={'username':'Ayudapanama','password':'wrong'}).status_code==429
 
 from pypdf import PdfReader
 
@@ -118,7 +118,7 @@ def test_help_persistence(live,data):
     id=submit(live,data).json()['id'];url='/api/admin/reports/'+id
     # New private routes cannot be accessed without a session.
     assert live.get(url+'/pdf').status_code==401
-    login=live.post('/api/admin/login',json={'password':'test-password-123456'});csrf={'x-csrf-token':login.json()['csrf']}
+    login=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'});csrf={'x-csrf-token':login.json()['csrf']}
     initial=live.get('/api/admin/reports').json()['reports'][0]
     assert initial['estado_ayuda']=='pendiente_confirmar' and initial['ayuda_actualizada_at'] is None
     assert live.patch(url,json={'estado_ayuda':'sin_ayuda'}).status_code==403
@@ -126,11 +126,12 @@ def test_help_persistence(live,data):
         assert live.patch(url,json=payload,headers=csrf).status_code==422
     assert live.patch(url,json={'estado_ayuda':'sin_ayuda','observacion':'Seguimiento privado'},headers=csrf).status_code==200
     # A fresh client/session reads the same persisted state.
-    reader=TestClient(m.app);reader.post('/api/admin/login',json={'password':'test-password-123456'})
+    reader=TestClient(m.app);reader.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'})
     report=reader.get('/api/admin/reports').json()['reports'][0]
     assert report['status']=='pendiente' and report['estado_ayuda']=='sin_ayuda'
-    assert report['ayuda_actualizada_at'] and report['ayuda_observacion']=='Seguimiento privado';assert report['ayuda_admin'] is None
+    assert report['ayuda_actualizada_at'] and report['ayuda_observacion']=='Seguimiento privado';assert report['ayuda_admin']=='Ayudapanama'
     assert len(report['ayuda_historial'])==1 and report['ayuda_historial'][0]['anterior']=='pendiente_confirmar'
+    assert report['ayuda_historial'][0]['administrador']=='Ayudapanama'
     assert live.patch(url,json={'estado_ayuda':'sin_ayuda','observacion':'Seguimiento privado'},headers=csrf).status_code==200
     same=live.get('/api/admin/reports').json()['reports'][0];assert len(same['ayuda_historial'])==1 and same['ayuda_actualizada_at']==report['ayuda_actualizada_at']
     assert live.patch(url,json={'status':'visitado'},headers=csrf).status_code==200
@@ -168,3 +169,54 @@ def test_existing_reports_migration(live,data):
             with c.transaction(): c.execute("UPDATE reports SET estado_ayuda='invalid'")
         c.execute('SET LOCAL search_path TO public')
         c.execute('DROP SCHEMA legacy_migration_test CASCADE')
+
+PRIVATE_GETS=['/api/admin/session','/api/admin/reports','/api/admin/export/master','/api/admin/export/area','/api/admin/export/anonymous','/api/admin/export/summary','/api/admin/reports/RPA-00000001/photos/00000000000000000000000000000000.jpg','/api/admin/reports/RPA-00000001/pdf']
+
+def test_owner_login_logout_and_route_protection(live):
+    for body in [{'password':'test-password-123456'},{'username':'otro','password':'test-password-123456'},{'username':'Ayudapanama','password':'incorrecta'},{'username':'Ayudapanama','password':'contraseña inválida'}]:
+        assert live.post('/api/admin/login',json=body).status_code==401
+    for path in PRIVATE_GETS: assert live.get(path).status_code==401
+    assert live.patch('/api/admin/reports/RPA-00000001',json={'estado_ayuda':'parcial'}).status_code==401
+    result=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'})
+    assert result.status_code==200
+    cookie=result.headers['set-cookie'];assert 'HttpOnly' in cookie and 'SameSite=strict' in cookie and 'Max-Age=3600' in cookie
+    token=live.cookies.get('rpa_session');csrf={'x-csrf-token':result.json()['csrf']}
+    assert live.get('/api/admin/session').json()['username']=='Ayudapanama'
+    assert live.post('/api/admin/logout').status_code==403
+    with m.db() as c:
+        session=c.execute('SELECT * FROM admin_sessions').fetchone()
+        assert session['username']=='Ayudapanama' and session['token_hash']!=token
+    assert live.post('/api/admin/logout',headers=csrf).status_code==200
+    replay=TestClient(m.app);replay.cookies.set('rpa_session',token)
+    for path in PRIVATE_GETS: assert replay.get(path).status_code==401
+    assert replay.patch('/api/admin/reports/RPA-00000001',json={'status':'visitado'},headers=csrf).status_code==401
+
+def test_session_expiration_tampering_and_password_rotation(live,monkeypatch):
+    response=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'});token=live.cookies.get('rpa_session')
+    client=TestClient(m.app);client.cookies.set('rpa_session',token[:-1]+('a' if token[-1]!='a' else 'b'))
+    assert client.get('/api/admin/session').status_code==401
+    monkeypatch.setenv('ADMIN_PASSWORD','a-new-private-password-123')
+    assert live.get('/api/admin/session').status_code==401
+    monkeypatch.setenv('ADMIN_PASSWORD','test-password-123456')
+    with m.db() as c: c.execute("UPDATE admin_sessions SET expires_at=now()-interval '1 second'")
+    assert live.get('/api/admin/session').status_code==401
+    # Legacy signed tokens without a server session no longer grant access.
+    value=str(int(__import__('time').time()+3600))+'.'+'f'*48
+    client.cookies.set('rpa_session',value+'.'+m.signing(value))
+    assert client.get('/api/admin/session').status_code==401
+
+def test_secure_cookie(live,monkeypatch):
+    monkeypatch.setenv('COOKIE_SECURE','true')
+    response=live.post('/api/admin/login',json={'username':'Ayudapanama','password':'test-password-123456'})
+    assert response.status_code==200 and 'Secure' in response.headers['set-cookie']
+
+def test_production_configuration_guard(monkeypatch,tmp_path):
+    monkeypatch.setenv('SESSION_SECRET','s'*40);monkeypatch.setenv('ADMIN_PASSWORD','a'*20)
+    monkeypatch.setenv('RAILWAY_ENVIRONMENT_ID','test-only');monkeypatch.delenv('RAILWAY_VOLUME_MOUNT_PATH',raising=False)
+    with pytest.raises(RuntimeError,match='volumen'): m.validate_runtime()
+    monkeypatch.setenv('RAILWAY_VOLUME_MOUNT_PATH',str(tmp_path));monkeypatch.setenv('PHOTO_DIR',str(tmp_path/'photos'));monkeypatch.setenv('COOKIE_SECURE','true')
+    m.validate_runtime()
+    monkeypatch.setenv('PHOTO_DIR','/tmp/outside-photo-volume')
+    with pytest.raises(RuntimeError,match='volumen'): m.validate_runtime()
+    monkeypatch.setenv('PHOTO_DIR',str(tmp_path/'photos'));monkeypatch.setenv('COOKIE_SECURE','false')
+    with pytest.raises(RuntimeError,match='HTTPS'): m.validate_runtime()

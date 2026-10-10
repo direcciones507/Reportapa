@@ -15,6 +15,7 @@ from .individual_pdf import individual_pdf
 ROOT = Path(__file__).resolve().parent
 NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adultos','Medicamentos','Ropa y cobijas','Colchones o lugar para dormir','Materiales para reparar la vivienda','Artículos de higiene','Otra necesidad']
 FIELDS = ['name','phone','province','district','township','community','maps','damage_type','damage','needs_detail']
+ADMIN_USERNAME = 'Ayudapanama'
 HELP_STATES = {'pendiente_confirmar':'Pendiente de confirmar','sin_ayuda':'Sin ayuda recibida','parcial':'Ayuda parcial','completa':'Ayuda completa'}
 NOTICE = 'Este es un registro ciudadano independiente. Reportar daños o necesidades no garantiza una inspección ni la entrega de ayuda. Si existe peligro inmediato, contacte a las autoridades de emergencia.'
 
@@ -24,10 +25,21 @@ def db():
 def photo_dir():
     p = Path(os.getenv('PHOTO_DIR', '/data/private-photos')); p.mkdir(parents=True, exist_ok=True); return p
 
-@asynccontextmanager
-async def lifespan(app):
+def validate_runtime():
     if len(os.getenv('SESSION_SECRET','')) < 32 or len(os.getenv('ADMIN_PASSWORD','')) < 16:
         raise RuntimeError('Configure SESSION_SECRET (32+) y ADMIN_PASSWORD (16+)')
+    if os.getenv('PUBLIC_REPORTS_ENABLED','false') not in ('true','false'):
+        raise RuntimeError('PUBLIC_REPORTS_ENABLED debe ser true o false')
+    if os.getenv('RAILWAY_ENVIRONMENT_ID'):
+        mount=os.getenv('RAILWAY_VOLUME_MOUNT_PATH','')
+        if not mount or not Path(mount).is_dir() or not Path(os.getenv('PHOTO_DIR','/data/private-photos')).resolve().is_relative_to(Path(mount).resolve()):
+            raise RuntimeError('Configure PHOTO_DIR dentro del volumen privado persistente de Railway')
+        if os.getenv('COOKIE_SECURE','true') != 'true':
+            raise RuntimeError('Railway requiere COOKIE_SECURE=true y HTTPS')
+
+@asynccontextmanager
+async def lifespan(app):
+    validate_runtime()
     with db() as c:
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
             c.execute(migration.read_text())
@@ -57,9 +69,13 @@ def admin(request: Request):
     token = request.cookies.get('rpa_session','')
     try:
         expiry, nonce, signature = token.split('.')
-        if int(expiry) < time.time() or not hmac.compare_digest(signing(expiry+'.'+nonce),signature): raise ValueError()
+        if int(expiry) < time.time() or not hmac.compare_digest(signing(expiry+'.'+nonce).encode(),signature.encode()): raise ValueError()
     except (ValueError, KeyError): raise HTTPException(401,'Sesión requerida')
-    if request.method != 'GET' and not hmac.compare_digest(request.headers.get('x-csrf-token',''), signing(token)):
+    with db() as c:
+        active=c.execute('SELECT username,credential_hash FROM admin_sessions WHERE token_hash=%s AND expires_at>now()', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    if not active or active['username'] != ADMIN_USERNAME or not hmac.compare_digest(active['credential_hash'],signing(os.environ['ADMIN_PASSWORD'])):
+        raise HTTPException(401,'Sesión requerida')
+    if request.method != 'GET' and not hmac.compare_digest(request.headers.get('x-csrf-token','').encode(), signing(token).encode()):
         raise HTTPException(403,'Solicitud inválida')
     return token
 
@@ -115,15 +131,27 @@ def config(): return {'enabled':os.getenv('PUBLIC_REPORTS_ENABLED','false') == '
 async def login(request: Request):
     limit(request,'login',10)
     if int(request.headers.get('content-length','0')) > 4096: raise HTTPException(413)
-    data = await request.json()
-    if not hmac.compare_digest(str(data.get('password','')),os.environ['ADMIN_PASSWORD']): raise HTTPException(401,'Credenciales inválidas')
-    value = str(int(time.time()+3600))+'.'+secrets.token_hex(24); token = value+'.'+signing(value)
+    try: data = await request.json()
+    except ValueError: raise HTTPException(422,'Solicitud inválida')
+    if not isinstance(data,dict): raise HTTPException(422,'Solicitud inválida')
+    username=data.get('username',''); password=data.get('password','')
+    if not isinstance(username,str) or not isinstance(password,str): raise HTTPException(401,'Credenciales inválidas')
+    user_ok=hmac.compare_digest(username.encode(),ADMIN_USERNAME.encode())
+    password_ok=hmac.compare_digest(password.encode(),os.environ['ADMIN_PASSWORD'].encode())
+    if not (user_ok and password_ok): raise HTTPException(401,'Credenciales inválidas')
+    expiry=int(time.time()+3600)
+    value = str(expiry)+'.'+secrets.token_hex(24); token = value+'.'+signing(value)
+    with db() as c:
+        c.execute('DELETE FROM admin_sessions WHERE expires_at<=now()')
+        c.execute('INSERT INTO admin_sessions(token_hash,username,expires_at,credential_hash) VALUES (%s,%s,to_timestamp(%s),%s)',
+                  (hashlib.sha256(token.encode()).hexdigest(),ADMIN_USERNAME,expiry,signing(os.environ['ADMIN_PASSWORD'])))
     response = JSONResponse({'csrf':signing(token)})
     response.set_cookie('rpa_session',token,httponly=True,secure=os.getenv('COOKIE_SECURE','true') == 'true',samesite='strict',max_age=3600,path='/'); return response
 @app.get('/api/admin/session')
-def session(token=Depends(admin)): return {'csrf':signing(token)}
+def session(token=Depends(admin)): return {'csrf':signing(token),'username':ADMIN_USERNAME}
 @app.post('/api/admin/logout')
 def logout(token=Depends(admin)):
+    with db() as c: c.execute('DELETE FROM admin_sessions WHERE token_hash=%s',(hashlib.sha256(token.encode()).hexdigest(),))
     r = JSONResponse({'ok':True}); r.delete_cookie('rpa_session',path='/'); return r
 
 @app.post('/api/reports')
@@ -204,13 +232,13 @@ async def status(report_id: str, request: Request, token=Depends(admin)):
         if 'estado_ayuda' in payload:
             note=report['ayuda_observacion'] if note is None else note.strip()
             if payload['estado_ayuda'] != report['estado_ayuda'] or note != report['ayuda_observacion']:
-                # Shared-password authentication has no individual administrator identity.
+                # The authenticated session belongs exclusively to the configured owner.
                 c.execute("""UPDATE reports SET estado_ayuda=%s, ayuda_observacion=%s,
-                    ayuda_actualizada_at=now(), ayuda_admin=NULL,
+                    ayuda_actualizada_at=now(), ayuda_admin=%s,
                     ayuda_historial=ayuda_historial || jsonb_build_array(jsonb_build_object(
                       'anterior',estado_ayuda,'estado',%s::text,'fecha',now(),
-                      'observacion',%s::text,'administrador',NULL)) WHERE id=%s""",
-                    (payload['estado_ayuda'],note,payload['estado_ayuda'],note,report_id))
+                      'observacion',%s::text,'administrador',%s::text)) WHERE id=%s""",
+                    (payload['estado_ayuda'],note,ADMIN_USERNAME,payload['estado_ayuda'],note,ADMIN_USERNAME,report_id))
     return {'ok':True}
 
 @app.get('/api/admin/reports/{report_id}/pdf')
