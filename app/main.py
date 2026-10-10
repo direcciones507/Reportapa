@@ -10,10 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from openpyxl import Workbook
 from reportlab.pdfgen import canvas
+from .individual_pdf import individual_pdf
 
 ROOT = Path(__file__).resolve().parent
 NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adultos','Medicamentos','Ropa y cobijas','Colchones o lugar para dormir','Materiales para reparar la vivienda','Artículos de higiene','Otra necesidad']
 FIELDS = ['name','phone','province','district','township','community','maps','damage_type','damage','needs_detail']
+HELP_STATES = {'pendiente_confirmar':'Pendiente de confirmar','sin_ayuda':'Sin ayuda recibida','parcial':'Ayuda parcial','completa':'Ayuda completa'}
 NOTICE = 'Este es un registro ciudadano independiente. Reportar daños o necesidades no garantiza una inspección ni la entrega de ayuda. Si existe peligro inmediato, contacte a las autoridades de emergencia.'
 
 def db():
@@ -26,7 +28,9 @@ def photo_dir():
 async def lifespan(app):
     if len(os.getenv('SESSION_SECRET','')) < 32 or len(os.getenv('ADMIN_PASSWORD','')) < 16:
         raise RuntimeError('Configure SESSION_SECRET (32+) y ADMIN_PASSWORD (16+)')
-    with db() as c: c.execute((ROOT.parent/'migrations/001_initial.sql').read_text())
+    with db() as c:
+        for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
+            c.execute(migration.read_text())
     photo_dir()
     yield
 
@@ -164,10 +168,12 @@ async def submit(request: Request):
 def rows(request, all_rows=False):
     clauses=[]; values=[]
     if not all_rows:
-        for key in ('province','district','township','community','status','need'):
+        for key in ('province','district','township','community','status','need','estado_ayuda'):
             value = request.query_params.get(key,'').strip()
             if not value: continue
-            if key == 'status': clauses.append('status=%s')
+            if key in ('status','estado_ayuda'):
+                if key == 'estado_ayuda' and value not in HELP_STATES: raise HTTPException(422,'Estado de ayuda inválido')
+                clauses.append(key+'=%s')
             elif key == 'need': clauses.append("data->'needs' ? %s")
             else: clauses.append('data->>%s = %s'); values.append(key)
             values.append(value)
@@ -181,11 +187,38 @@ def reports(request: Request, token=Depends(admin)):
     return {'total':len(result),'reports':result[(page-1)*50:page*50]}
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
-    value=(await request.json()).get('status')
-    if value not in ('pendiente','contactado','visitado'): raise HTTPException(422)
+    payload = await request.json()
+    if not isinstance(payload,dict) or not payload or set(payload)-{'status','estado_ayuda','observacion'}:
+        raise HTTPException(422,'Cambio inválido')
+    if 'status' in payload and payload['status'] not in ('pendiente','contactado','visitado'):
+        raise HTTPException(422,'Estado operativo inválido')
+    if 'estado_ayuda' in payload and (not isinstance(payload['estado_ayuda'],str) or payload['estado_ayuda'] not in HELP_STATES):
+        raise HTTPException(422,'Estado de ayuda inválido')
+    if 'observacion' in payload and 'estado_ayuda' not in payload: raise HTTPException(422,'Seleccione el estado de ayuda')
+    note = payload.get('observacion')
+    if note is not None and (not isinstance(note,str) or len(note)>500): raise HTTPException(422,'Observación: máximo 500 caracteres')
     with db() as c:
-        if not c.execute('UPDATE reports SET status=%s WHERE id=%s RETURNING id',(value,report_id)).fetchone(): raise HTTPException(404)
+        report=c.execute('SELECT * FROM reports WHERE id=%s FOR UPDATE',(report_id,)).fetchone()
+        if not report: raise HTTPException(404)
+        if 'status' in payload: c.execute('UPDATE reports SET status=%s WHERE id=%s',(payload['status'],report_id))
+        if 'estado_ayuda' in payload:
+            note=report['ayuda_observacion'] if note is None else note.strip()
+            if payload['estado_ayuda'] != report['estado_ayuda'] or note != report['ayuda_observacion']:
+                # Shared-password authentication has no individual administrator identity.
+                c.execute("""UPDATE reports SET estado_ayuda=%s, ayuda_observacion=%s,
+                    ayuda_actualizada_at=now(), ayuda_admin=NULL,
+                    ayuda_historial=ayuda_historial || jsonb_build_array(jsonb_build_object(
+                      'anterior',estado_ayuda,'estado',%s::text,'fecha',now(),
+                      'observacion',%s::text,'administrador',NULL)) WHERE id=%s""",
+                    (payload['estado_ayuda'],note,payload['estado_ayuda'],note,report_id))
     return {'ok':True}
+
+@app.get('/api/admin/reports/{report_id}/pdf')
+def report_pdf(report_id: str, token=Depends(admin)):
+    with db() as c: report=c.execute('SELECT * FROM reports WHERE id=%s',(report_id,)).fetchone()
+    if not report: raise HTTPException(404)
+    content=individual_pdf(report,photo_dir(),HELP_STATES)
+    return Response(content,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="REPORTAPA_{report["id"]}_FICHA.pdf"'})
 @app.get('/api/admin/reports/{report_id}/photos/{filename}')
 def photo(report_id: str, filename: str, token=Depends(admin)):
     with db() as c: r=c.execute('SELECT photos FROM reports WHERE id=%s',(report_id,)).fetchone()
@@ -195,10 +228,15 @@ def photo(report_id: str, filename: str, token=Depends(admin)):
 def workbook(records, filters, anonymous=False):
     wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
     columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre de persona/familia','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
+    columns += ['Estado de ayuda','Fecha del último seguimiento']
+    if not anonymous: columns.append('Observación de seguimiento')
     sheet.append(columns)
     for r in records:
         d=r['data']; base=[r['id'],r['created_at'].isoformat()]
         values = base+[d['province'],d['district'],d['township'],'','',', '.join(d['needs']),'',r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
+        updated=r.get('ayuda_actualizada_at')
+        values += [HELP_STATES[r.get('estado_ayuda','pendiente_confirmar')],updated.isoformat() if updated else '']
+        if not anonymous: values.append(r.get('ayuda_observacion',''))
         sheet.append(values)
         for cell in sheet[sheet.max_row]:
             if isinstance(cell.value,str): cell.data_type='s'

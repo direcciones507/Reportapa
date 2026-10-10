@@ -92,3 +92,79 @@ def test_private_photos(live,data):
 def test_rate_limit(live):
     for _ in range(10): assert live.post('/api/admin/login',json={'password':'wrong'}).status_code==401
     assert live.post('/api/admin/login',json={'password':'wrong'}).status_code==429
+
+from pypdf import PdfReader
+
+def test_help_excel_privacy(data):
+    report=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=m.validate(data),status='visitado',estado_ayuda='parcial',ayuda_actualizada_at=datetime.now(timezone.utc),ayuda_observacion='=CONFIDENTIAL_NOTE')
+    wb=load_workbook(io.BytesIO(m.workbook([report],'todos')))
+    values=list(wb['Reportes'].values);assert values[1][-3]=='Ayuda parcial';assert values[1][-1]=='=CONFIDENTIAL_NOTE';assert wb['Reportes'].cell(2,len(values[0])).data_type=='s'
+    anon=load_workbook(io.BytesIO(m.workbook([report],'todos',True)))
+    text=str(list(anon['Reportes'].values));assert 'CONFIDENTIAL_NOTE' not in text;assert 'Ayuda parcial' in text;assert '61234567' not in text
+
+def test_single_page_pdf(data,tmp_path):
+    photos=[]
+    for i,size in enumerate([(150,100),(100,150),(150,150)]):
+        name=f'{i:032x}.jpg';Image.new('RGB',size,(50+i*40,120,180)).save(tmp_path/name);photos.append(name)
+    d=m.validate(data);d['damage']='Daños en paredes. '*80;d['needs_detail']='Artículos y cantidades. '*60
+    report=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=d,status='contactado',estado_ayuda='sin_ayuda',ayuda_actualizada_at=datetime.now(timezone.utc),ayuda_observacion='Observación privada. '*20,photos=photos)
+    pdf=PdfReader(io.BytesIO(m.individual_pdf(report,tmp_path,m.HELP_STATES)))
+    assert len(pdf.pages)==1
+    text=pdf.pages[0].extract_text();assert 'Sin ayuda recibida' in text;assert 'Último seguimiento' in text;assert 'Ficha individual' in text
+    assert len(pdf.pages[0].images)==3
+    report['photos']=[];assert len(PdfReader(io.BytesIO(m.individual_pdf(report,tmp_path,m.HELP_STATES))).pages)==1
+
+def test_help_persistence(live,data):
+    id=submit(live,data).json()['id'];url='/api/admin/reports/'+id
+    # New private routes cannot be accessed without a session.
+    assert live.get(url+'/pdf').status_code==401
+    login=live.post('/api/admin/login',json={'password':'test-password-123456'});csrf={'x-csrf-token':login.json()['csrf']}
+    initial=live.get('/api/admin/reports').json()['reports'][0]
+    assert initial['estado_ayuda']=='pendiente_confirmar' and initial['ayuda_actualizada_at'] is None
+    assert live.patch(url,json={'estado_ayuda':'sin_ayuda'}).status_code==403
+    for payload in [{'estado_ayuda':'received'},{'estado_ayuda':[]},{'estado_ayuda':'parcial','observacion':'x'*501},{'estado_ayuda':'parcial','observacion':42},{'observacion':'note'}]:
+        assert live.patch(url,json=payload,headers=csrf).status_code==422
+    assert live.patch(url,json={'estado_ayuda':'sin_ayuda','observacion':'Seguimiento privado'},headers=csrf).status_code==200
+    # A fresh client/session reads the same persisted state.
+    reader=TestClient(m.app);reader.post('/api/admin/login',json={'password':'test-password-123456'})
+    report=reader.get('/api/admin/reports').json()['reports'][0]
+    assert report['status']=='pendiente' and report['estado_ayuda']=='sin_ayuda'
+    assert report['ayuda_actualizada_at'] and report['ayuda_observacion']=='Seguimiento privado';assert report['ayuda_admin'] is None
+    assert len(report['ayuda_historial'])==1 and report['ayuda_historial'][0]['anterior']=='pendiente_confirmar'
+    assert live.patch(url,json={'estado_ayuda':'sin_ayuda','observacion':'Seguimiento privado'},headers=csrf).status_code==200
+    same=live.get('/api/admin/reports').json()['reports'][0];assert len(same['ayuda_historial'])==1 and same['ayuda_actualizada_at']==report['ayuda_actualizada_at']
+    assert live.patch(url,json={'status':'visitado'},headers=csrf).status_code==200
+    assert live.get('/api/admin/reports?estado_ayuda=sin_ayuda&province=Veraguas&status=visitado').json()['total']==1
+    assert live.get('/api/admin/reports?estado_ayuda=completa').json()['total']==0
+    assert live.get('/api/admin/reports?estado_ayuda=wrong').status_code==422
+    for kind in ['master','area','anonymous']:
+        result=live.get('/api/admin/export/'+kind+'?estado_ayuda=sin_ayuda')
+        assert result.status_code==200
+        workbook=load_workbook(io.BytesIO(result.content));assert 'Sin ayuda recibida' in str(list(workbook['Reportes'].values))
+        if kind=='anonymous': assert 'Seguimiento privado' not in str(list(workbook['Reportes'].values))
+    pdf=live.get(url+'/pdf');assert pdf.status_code==200 and len(PdfReader(io.BytesIO(pdf.content)).pages)==1
+    assert 'Sin ayuda recibida' in PdfReader(io.BytesIO(pdf.content)).pages[0].extract_text()
+    assert live.get('/api/admin/export/summary').content.startswith(b'%PDF')
+    assert live.patch(url,json={'estado_ayuda':'completa','observacion':''},headers=csrf).status_code==200
+    final=live.get('/api/admin/reports').json()['reports'][0];assert final['status']=='visitado';assert len(final['ayuda_historial'])==2
+    # Re-running migrations preserves report data and follow-up history.
+    with m.db() as c:
+        c.execute((m.ROOT.parent/'migrations/002_help_followup.sql').read_text())
+        persisted=c.execute('SELECT * FROM reports WHERE id=%s',(id,)).fetchone()
+    assert persisted['estado_ayuda']=='completa' and len(persisted['ayuda_historial'])==2
+
+def test_existing_reports_migration(live,data):
+    with m.db() as c:
+        c.execute('CREATE SCHEMA legacy_migration_test')
+        c.execute('SET LOCAL search_path TO legacy_migration_test')
+        c.execute((m.ROOT.parent/'migrations/001_initial.sql').read_text())
+        r=c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data) VALUES (%s,%s,%s,%s::jsonb) RETURNING id',(str(uuid.uuid4()),'old','old',__import__('json').dumps(m.validate(data)))).fetchone()
+        c.execute((m.ROOT.parent/'migrations/002_help_followup.sql').read_text())
+        c.execute((m.ROOT.parent/'migrations/002_help_followup.sql').read_text())
+        old=c.execute('SELECT * FROM reports WHERE id=%s',(r['id'],)).fetchone()
+        assert old['estado_ayuda']=='pendiente_confirmar';assert old['ayuda_historial']==[];assert old['status']=='pendiente';assert old['ayuda_actualizada_at'] is None
+        assert old['data']['name']==data['name']
+        with pytest.raises(__import__('psycopg').errors.CheckViolation):
+            with c.transaction(): c.execute("UPDATE reports SET estado_ayuda='invalid'")
+        c.execute('SET LOCAL search_path TO public')
+        c.execute('DROP SCHEMA legacy_migration_test CASCADE')
