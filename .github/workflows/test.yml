@@ -1,14 +1,17 @@
 name: ReportaPA tests
 on:
-  push:
-    branches: [feat/reportapa-mvp-20261010]
+  workflow_dispatch:
   pull_request:
     branches: [main]
+concurrency:
+  group: reportapa-tests-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16
@@ -17,7 +20,7 @@ jobs:
           POSTGRES_PASSWORD: test-only
           POSTGRES_DB: reportapa_test
         ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U reportapa -d reportapa_test" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       REPORTAPA_RECOVERY_TEST: disposable-ci
       PUBLIC_REPORTS_ENABLED: "false"

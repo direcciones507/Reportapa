@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from PIL import Image
 from app import main as m
+from psycopg.conninfo import conninfo_to_dict
 
 @pytest.fixture
 def data():
@@ -47,6 +48,9 @@ def test_closed_and_auth(monkeypatch):
 @pytest.fixture
 def live(monkeypatch,tmp_path):
     if not os.getenv('DATABASE_URL'): pytest.skip('PostgreSQL required')
+    params=conninfo_to_dict(os.environ['DATABASE_URL'])
+    if params.get('host') not in ('localhost','127.0.0.1') or params.get('dbname')!='reportapa_test':
+        pytest.fail('Integration tests require disposable localhost database reportapa_test; no tables were changed')
     monkeypatch.setenv('SESSION_SECRET','test-secret-'*4)
     monkeypatch.setenv('ADMIN_PASSWORD','test-password-123456')
     monkeypatch.setenv('PHOTO_DIR',str(tmp_path))

@@ -25,11 +25,13 @@ def db():
     return psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row)
 
 def photo_dir():
-    p = Path(os.getenv('PHOTO_DIR', '/data/private-photos')); p.mkdir(parents=True, exist_ok=True); return p
+    p = Path(os.getenv('PHOTO_DIR', '/data/private-photos')); p.mkdir(mode=0o700, parents=True, exist_ok=True); return p
 
 def validate_runtime():
     if len(os.getenv('SESSION_SECRET','')) < 32 or len(os.getenv('ADMIN_PASSWORD','')) < 16:
         raise RuntimeError('Configure SESSION_SECRET (32+) y ADMIN_PASSWORD (16+)')
+    if os.getenv('COOKIE_SECURE','true') not in ('true','false'):
+        raise RuntimeError('COOKIE_SECURE debe ser true o false')
     if os.getenv('PUBLIC_REPORTS_ENABLED','false') not in ('true','false'):
         raise RuntimeError('PUBLIC_REPORTS_ENABLED debe ser true o false')
     if os.getenv('RAILWAY_ENVIRONMENT_ID'):
@@ -43,6 +45,7 @@ def validate_runtime():
 async def lifespan(app):
     validate_runtime()
     with db() as c:
+        c.execute("SELECT pg_advisory_xact_lock(hashtextextended('reportapa-migrations',2))")
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
             c.execute(migration.read_text())
     photo_dir()
@@ -110,6 +113,7 @@ def validate(raw):
     for k in FIELDS:
         if k not in ('needs_detail','damage_type') and not data[k]: raise HTTPException(422,'Complete los campos obligatorios')
         if len(data[k]) > (1500 if k in ('damage','needs_detail') else 300): raise HTTPException(422,'Campo demasiado largo')
+    if not re.fullmatch(r'[+0-9() .-]+',data['phone']): raise HTTPException(422,'Teléfono de Panamá inválido')
     data['phone'] = re.sub(r'[^0-9]','',data['phone'])
     if len(data['phone']) == 11 and data['phone'].startswith('507'): data['phone'] = data['phone'][3:]
     if not re.fullmatch(r'[2-9][0-9]{6,7}',data['phone']): raise HTTPException(422,'Teléfono de Panamá inválido')
@@ -147,12 +151,14 @@ def health():
     return {'status':'ok'}
 @app.get('/api/config')
 def config(): return {'enabled':os.getenv('PUBLIC_REPORTS_ENABLED','false') == 'true','needs':NEEDS,'notice':NOTICE}
+async def json_payload(request):
+    try: return await request.json()
+    except (ValueError,UnicodeDecodeError): raise HTTPException(422,'Solicitud inválida')
+
 @app.post('/api/admin/login')
 async def login(request: Request):
     limit(request,'login',10)
-    if int(request.headers.get('content-length','0')) > 4096: raise HTTPException(413)
-    try: data = await request.json()
-    except ValueError: raise HTTPException(422,'Solicitud inválida')
+    data = await json_payload(request)
     if not isinstance(data,dict): raise HTTPException(422,'Solicitud inválida')
     username=data.get('username',''); password=data.get('password','')
     if not isinstance(username,str) or not isinstance(password,str): raise HTTPException(401,'Credenciales inválidas')
@@ -178,7 +184,6 @@ def logout(token=Depends(admin)):
 async def submit(request: Request):
     if os.getenv('PUBLIC_REPORTS_ENABLED','false') != 'true': raise HTTPException(503,'Recepción de reportes aún no habilitada')
     limit(request,'submit',20)
-    if int(request.headers.get('content-length','0')) > 16*1024*1024: raise HTTPException(413)
     form = await request.form(max_files=3,max_fields=40)
     if form.get('website'): raise HTTPException(422,'Solicitud inválida')
     try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
@@ -210,11 +215,22 @@ async def submit(request: Request):
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
             for photo in photos:
                 filename = uuid.uuid4().hex+'.jpg'; path = photo_dir()/filename
-                path.write_bytes(photo); path.chmod(0o600); saved.append(filename)
+                descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                saved.append(filename)
+                with os.fdopen(descriptor,'wb') as output: output.write(photo)
             r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup)).fetchone()
         return {'id':r['id'],'notice':NOTICE}
     except Exception:
-        for filename in saved: (photo_dir()/filename).unlink(missing_ok=True)
+        pending=[]
+        for filename in saved:
+            try: (photo_dir()/filename).unlink(missing_ok=True)
+            except OSError: pending.append(filename)
+        if pending:
+            try:
+                with db() as c:
+                    for filename in pending:
+                        c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(filename,))
+            except psycopg.Error: pass  # Database outage: private orphan requires later reconciliation.
         raise
 
 def rows(request, all_rows=False):
@@ -242,7 +258,7 @@ def reports(request: Request, token=Depends(admin)):
     return {'total':len(result),'reports':result[(page-1)*50:page*50]}
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
-    payload = await request.json()
+    payload = await json_payload(request)
     if not isinstance(payload,dict) or not payload or set(payload)-{'status','estado_ayuda','observacion','archived'}:
         raise HTTPException(422,'Cambio inválido')
     if 'status' in payload and payload['status'] not in ('pendiente','contactado','visitado'):
@@ -276,7 +292,7 @@ async def status(report_id: str, request: Request, token=Depends(admin)):
 
 @app.delete('/api/admin/reports/{report_id}')
 async def delete_report(report_id: str, request: Request, token=Depends(admin)):
-    payload=await request.json()
+    payload=await json_payload(request)
     if not isinstance(payload,dict) or payload.get('confirm') != 'ELIMINAR '+report_id:
         raise HTTPException(422,'Confirme escribiendo ELIMINAR seguido del número de reporte')
     with db() as c:
@@ -305,7 +321,9 @@ def report_pdf(report_id: str, token=Depends(admin)):
 def photo(report_id: str, filename: str, token=Depends(admin)):
     with db() as c: r=c.execute('SELECT photos FROM reports WHERE id=%s',(report_id,)).fetchone()
     if not r or filename not in r['photos'] or not re.fullmatch(r'[a-f0-9]{32}\.jpg',filename): raise HTTPException(404)
-    return FileResponse(photo_dir()/filename,media_type='image/jpeg')
+    path=photo_dir()/filename
+    if not path.is_file(): raise HTTPException(404,'Foto no disponible')
+    return FileResponse(path,media_type='image/jpeg')
 
 def workbook(records, filters, anonymous=False):
     wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
