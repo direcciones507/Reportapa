@@ -33,3 +33,20 @@ test('admin button opens composer only on explicit click and never updates repor
 test('admin button reports invalid phone without opening external site',()=>{
   const page=render('invalid');page.button.onclick();assert.equal(page.calls.length,0);assert.match(page.context.message.textContent,/teléfono registrado no es válido/);
 });
+
+test('permanent erasure requires exact report confirmation before making a request',async()=>{
+  const page=render('61234567');const requests=[];
+  page.context.api=async(url,options)=>{requests.push({url,options});return {message:'Datos eliminados'};};page.context.load=async()=>{};
+  page.context.renderLifecycle({id:'RPA-00000001',archived_at:null},{append(){}});
+  const button=page.elements.find(e=>e.textContent==='Eliminar definitivamente');const input=page.elements.find(e=>e.tag==='input');
+  input.value='ELIMINAR RPA-OTRO';await button.onclick();assert.equal(requests.length,0);assert.match(page.context.message.textContent,/confirmación no coincide/);
+  input.value='ELIMINAR RPA-00000001';await button.onclick();assert.equal(requests.length,1);
+  assert.equal(requests[0].options.method,'DELETE');assert.deepEqual(JSON.parse(requests[0].options.body),{confirm:'ELIMINAR RPA-00000001'});
+});
+test('archive button uses the same private report route and preserves operational state',async()=>{
+  const page=render('61234567');const requests=[];
+  page.context.api=async(url,options)=>{requests.push({url,options});return {ok:true};};page.context.load=async()=>{};
+  page.context.renderLifecycle({id:'RPA-00000001',archived_at:null,status:'visitado'},{append(){}});
+  await page.elements.find(e=>e.textContent==='Archivar reporte').onclick();
+  assert.equal(requests[0].options.method,'PATCH');assert.deepEqual(JSON.parse(requests[0].options.body),{archived:true});
+});

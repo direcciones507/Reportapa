@@ -22,14 +22,14 @@ def test_household_counts(data):
     assert household({**data,'age_0_5':1,'age_6_17':0,'age_18_59':2,'age_60_plus':1,'people_disability':1})['age_6_17']==0
     # Partial information is permitted, but never overcounts the whole family.
     assert household({**data,'age_0_5':1})['age_18_59'] is None
-    invalid=[{'total_people':0},{'total_people':1001},{'total_people':True},{'total_people':'1.5'},{'family_name':''},{'age_0_5':-1},{'age_0_5':5},{'age_0_5':1,'age_6_17':1,'age_18_59':0,'age_60_plus':0},{'people_disability':5}]
+    invalid=[{'total_people':0},{'total_people':1001},{'total_people':True},{'total_people':'1.5'},{'family_name':''},{'family_name':None},{'age_0_5':-1},{'age_0_5':5},{'age_0_5':1,'age_6_17':1,'age_18_59':0,'age_60_plus':0},{'people_disability':5}]
     for extra in invalid:
         with pytest.raises(HTTPException):m.validate({**data,**extra})
 
 def test_coordinates_only_when_explicit():
-    for link in ['https://www.google.com/maps?q=8.12345,-80.98765','https://www.google.com/maps/search/?api=1&query=8.12345%2C-80.98765','https://www.google.com/maps/place/Test/data=!3d8.12345!4d-80.98765']:
+    for link in ['https://www.google.com/maps?q=8.12345,-80.98765','https://www.google.com/maps/search/?api=1&query=8.12345%2C-80.98765','https://www.google.com/maps/place/Test/data=!3d8.12345!4d-80.98765','https://www.google.com/maps?data=!3d8.12345!4d-80.98765']:
         assert coordinates(link)=={'latitude':8.12345,'longitude':-80.98765}
-    for link in ['https://maps.app.goo.gl/abc','https://www.google.com/maps/@8.1,-80.9,15z','https://www.google.com/maps?ll=8.1,-80.9','https://www.google.com/maps?q=91,-80','https://www.google.com/maps?q=Vivienda']:
+    for link in ['https://maps.app.goo.gl/abc','https://www.google.com/maps/@8.1,-80.9,15z','https://www.google.com/maps?ll=8.1,-80.9','https://www.google.com/maps?q=91,-80','https://www.google.com/maps?q=Vivienda','https://www.google.com/maps/dir/data=!3d8.1!4d-80.9','https://www.google.com/maps?q=8.1,-80.9&query=8.2,-80.8']:
         assert coordinates(link) is None
 
 def test_household_exports_and_pdf(data,tmp_path):

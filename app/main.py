@@ -56,7 +56,7 @@ async def lifespan(app):
         while True:
             await asyncio.sleep(30)
             try: await asyncio.to_thread(cleanup_photos,db,photo_dir())
-            except psycopg.Error: pass  # Retry after transient database interruption.
+            except (psycopg.Error,OSError): pass  # Retry after transient database interruption.
     worker=asyncio.create_task(maintain())
     try: yield
     finally:
@@ -287,9 +287,12 @@ async def delete_report(report_id: str, request: Request, token=Depends(admin)):
         c.execute('INSERT INTO deleted_reports(id) VALUES (%s) ON CONFLICT DO NOTHING',(report_id,))
         c.execute('DELETE FROM reports WHERE id=%s',(report_id,))
     # After commit, the private routes can no longer serve the deleted photos.
-    await asyncio.to_thread(cleanup_photos,db,photo_dir())
-    with db() as c:
-        pending=c.execute('SELECT count(*) AS n FROM photo_cleanup WHERE filename=ANY(%s)',(report['photos'],)).fetchone()['n']
+    try:
+        await asyncio.to_thread(cleanup_photos,db,photo_dir())
+        with db() as c:
+            pending=c.execute('SELECT count(*) AS n FROM photo_cleanup WHERE filename=ANY(%s)',(report['photos'],)).fetchone()['n']
+    except (psycopg.Error,OSError):
+        return JSONResponse({'deleted':True,'photos_pending':len(report['photos']),'message':'Datos eliminados. No se pudo verificar la limpieza física; se reintentará automáticamente.'},status_code=202)
     return JSONResponse({'deleted':True,'photos_pending':pending,'message':'Datos eliminados. '+('Limpieza física de fotos pendiente; se reintentará automáticamente.' if pending else 'Fotografías eliminadas.')},status_code=202 if pending else 200)
 
 @app.get('/api/admin/reports/{report_id}/pdf')
@@ -306,7 +309,7 @@ def photo(report_id: str, filename: str, token=Depends(admin)):
 
 def workbook(records, filters, anonymous=False):
     wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
-    columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre de persona/familia','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
+    columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre del responsable / nombre original','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
     columns += ['Nombre de familia','Total de personas afectadas',*COUNT_FIELDS.values()]
     if not anonymous: columns += ['Latitud','Longitud','Archivado']
     columns += ['Estado de ayuda','Fecha del último seguimiento']

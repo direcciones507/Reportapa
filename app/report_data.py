@@ -7,7 +7,7 @@ AGE_GROUPS={'age_0_5':'0 a 5 años','age_6_17':'6 a 17 años','age_18_59':'18 a 
 COUNT_FIELDS={**AGE_GROUPS,'people_disability':'Personas con discapacidad'}
 
 def household(raw):
-    family=str(raw.get('family_name','')).strip()
+    family=str(raw.get('family_name') or '').strip()
     if not family or len(family)>300: raise HTTPException(422,'Indique el nombre de la familia (máximo 300 caracteres)')
     values={'family_name':family}
     for field in ('total_people',*COUNT_FIELDS):
@@ -27,17 +27,19 @@ def household(raw):
 
 def coordinates(link):
     u=urlparse(link);p=unquote(u.path);q=parse_qs(u.query)
-    candidates=[]
-    # These encode a selected place or a literal coordinate search. @ and ll
-    # describe viewport centers, not necessarily the affected dwelling.
-    candidates.extend(q.get('q',[])+q.get('query',[]))
-    match=re.search(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)',p)
-    if match:candidates.insert(0,match.group(1)+','+match.group(2))
+    if '/dir/' in p or p.endswith('/dir'): return None
+    candidates=q.get('q',[])+q.get('query',[])
+    # Selected-place coordinates can occur in the path or in a data query.
+    for lat,lon in re.findall(r'!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)',p+'?'+unquote(u.query)):
+        candidates.append(lat+','+lon)
+    points=set()
     for value in candidates:
         m=re.fullmatch(r'\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*',value)
         if m:
             lat,lon=map(float,m.groups())
-            if -90<=lat<=90 and -180<=lon<=180:return {'latitude':lat,'longitude':lon}
+            if -90<=lat<=90 and -180<=lon<=180: points.add((lat,lon))
+    if len(points)==1:
+        lat,lon=points.pop();return {'latitude':lat,'longitude':lon}
     return None
 
 def normal(value):
