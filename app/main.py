@@ -56,12 +56,14 @@ def validate_runtime():
 @asynccontextmanager
 async def lifespan(app):
     global pool
+    previous_pool = pool
     validate_runtime()
-    pool = ConnectionPool(os.environ['DATABASE_URL'], min_size=2,
+    active_pool = ConnectionPool(os.environ['DATABASE_URL'], min_size=2,
                           max_size=int(os.getenv('DB_POOL_MAX','8')), timeout=10,
                           max_waiting=64, kwargs={'row_factory':dict_row,
                           'options':'-c statement_timeout=15000 -c lock_timeout=10000'}, open=False)
-    await asyncio.to_thread(pool.open, wait=True)
+    pool = active_pool
+    await asyncio.to_thread(active_pool.open, wait=True)
     app.state.waiting_submissions = 0
     app.state.submissions = asyncio.Semaphore(int(os.getenv('SUBMISSION_WORKERS','8')))
     with db() as c:
@@ -88,8 +90,8 @@ async def lifespan(app):
         worker.cancel()
         try: await worker
         except asyncio.CancelledError: pass
-        await asyncio.to_thread(pool.close)
-        pool = None
+        await asyncio.to_thread(active_pool.close)
+        pool = previous_pool
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')

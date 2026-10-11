@@ -34,3 +34,5 @@ Se requiere lectura dentro del contenedor existente: df -B1 /data, sumatoria/tam
 Capacidad sin fotos depende del tamaño real de filas/índices; con fotos suele limitar primero el volumen privado de 1 GB. Proyecciones: floor(espacio útil reservado/(n_fotos × tamaño foto)), combinada con límite DB. Cero fotos: límite DB. Mostrar siempre origen sintético/real de los tamaños. Volumen configurado es máximo, no uso facturable ni garantía de capacidad.
 
 No se contratan recursos ni se amplían volúmenes. Estimación monetaria requiere tarifa Railway vigente y uso incremental CPU/RAM/disco; informar antes de solicitar autorización. Cambios del PR no agregan infraestructura; consumo después del despliegue depende del tráfico.
+
+Tarifas consultadas 11-oct-2026 en https://docs.railway.com/pricing: volumen $0.15/GB/mes, RAM $10/GB/mes, CPU $20/vCPU/mes, egreso $0.05/GB. Escenario fotos de 1 a 5 GB: hasta $0.60/mes por 4 GB adicionales realmente ocupados; de 1 a 10 GB: hasta $1.35/mes por 9 GB adicionales. No incluye incremento CPU/RAM/egreso ni garantiza importe final de factura; créditos Pro y consumo de otros proyectos influyen. No aplicado.

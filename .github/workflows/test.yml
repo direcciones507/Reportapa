@@ -1,8 +1,10 @@
 name: ReportaPA tests
 on:
   workflow_dispatch:
+  push:
+    branches: [fix/reportapa-capacity-20261011]
   pull_request:
-    branches: [main, feat/reportapa-mvp-20261010]
+    branches: [main]
 concurrency:
   group: reportapa-tests-${{ github.ref }}
   cancel-in-progress: true

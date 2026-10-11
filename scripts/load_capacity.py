@@ -22,6 +22,7 @@ async def main():
     monitor=psutil.Process(process.pid); monitor.cpu_percent()
     result={'environment':{'platform':platform.platform(),'cpu_count':os.cpu_count(),'memory_gb':round(psutil.virtual_memory().total/1e9,2),'postgres':None,'note':'Loopback isolated load; not Railway certified'},'thresholds':{'p95_ms':5000,'error_fraction':0.01,'rss_mb':1024,'abort':'Stop escalating scenario when any threshold fails; timeout 20s per request'},'stages':[]}
     image=Image.effect_noise((1600,1200),80).convert('RGB');out=io.BytesIO();image.save(out,'JPEG',quality=90);photo=out.getvalue()
+    sys.path.insert(0,str(ROOT))
     from app.main import clean_photo
     timings=[]
     for _ in range(20):
@@ -84,7 +85,7 @@ async def main():
                 result['storage']={'synthetic_reports':n,'reports_table_and_indexes_bytes':total,'bytes_per_report_including_indexes':round(total/n,2),'input_photo_bytes':len(photo)}
             sizes=[p.stat().st_size for p in photos.glob('*.jpg')]
             result['storage'].update({'processed_photos':len(sizes),'average_photo_bytes':round(sum(sizes)/len(sizes),2) if sizes else 0,'max_photo_bytes':max(sizes) if sizes else 0})
-            # Restart proves confirmed rows/photos survive process lifecycle.
+            # Verify files after all confirmed transactions.
             result['storage']['all_photos_present']=all(p.stat().st_size>0 for p in photos.glob('*.jpg'))
             OUTPUT.write_text(json.dumps(result,indent=2))
     finally:
