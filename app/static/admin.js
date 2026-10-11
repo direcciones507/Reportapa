@@ -30,7 +30,7 @@ function renderHelp(r,parent){
 function renderHousehold(r,parent){
   text('p','Familia: '+(r.data.family_name||'Sin informar')+' · Personas afectadas: '+(r.data.total_people??'Sin informar'),parent);
   const labels={age_0_5:'0 a 5 años',age_6_17:'6 a 17 años',age_18_59:'18 a 59 años',age_60_plus:'60 años o más',people_disability:'Personas con discapacidad'};
-  text('p',Object.entries(labels).map(([key,label])=>label+': '+(r.data[key]??'Sin informar')).join(' · '),parent);
+  text('p',Object.entries(labels).filter(([key])=>key==='people_disability'||r.data[key]>0).map(([key,label])=>label+': '+(r.data[key]??'Sin informar')).join(' · '),parent);
   if(r.data.coordinates)text('p','Coordenadas indicadas en Maps: '+r.data.coordinates.latitude+', '+r.data.coordinates.longitude,parent);
 }
 function renderLifecycle(r,parent){
