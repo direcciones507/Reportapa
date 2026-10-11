@@ -17,7 +17,7 @@ function renderHelp(r,parent){
   if(['pendiente_confirmar','sin_ayuda'].includes(r.estado_ayuda))heading.className='help-attention';
   text('p','Último seguimiento: '+(r.ayuda_actualizada_at?new Date(r.ayuda_actualizada_at).toLocaleString('es-PA'):'Sin confirmar'),box);
   const wa=text('button','Consultar ayuda por WhatsApp',box);wa.type='button';
-  wa.onclick=()=>{try{const url=ReportaFollowup.whatsappUrl(r.data.phone);window.open(url,'_blank','noopener,noreferrer');text('p','Revise el mensaje en WhatsApp y envíelo manualmente. Abrir WhatsApp no confirma el envío ni cambia el estado de ayuda.',box);}catch(e){message.textContent=e.message;}};
+  wa.onclick=()=>{try{const url=ReportaFollowup.whatsappUrl(r.data.phone,r.id);window.open(url,'_blank','noopener,noreferrer');text('p','Revise el mensaje en WhatsApp y envíelo manualmente. Abrir WhatsApp no confirma el envío ni cambia el estado de ayuda.',box);}catch(e){message.textContent=e.message;}};
   const pdf=text('a','Descargar ficha PDF individual',box);pdf.href='/api/admin/reports/'+encodeURIComponent(r.id)+'/pdf';pdf.className='button';
   const label=text('label','Estado de ayuda',box),select=document.createElement('select');
   Object.entries(ReportaFollowup.states).forEach(([value,title])=>{const o=document.createElement('option');o.value=value;o.textContent=title;select.append(o);});select.value=r.estado_ayuda;label.append(select);
