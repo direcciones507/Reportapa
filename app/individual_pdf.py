@@ -25,6 +25,7 @@ def individual_pdf(report, directory, states):
     d=report['data'];updated=report.get('ayuda_actualizada_at')
     line('Fecha del reporte',report['created_at'].strftime('%d/%m/%Y %H:%M UTC'))
     line('Responsable' if d.get('family_name') else 'Nombre original (persona/familia)',d['name']);line('Familia',d.get('family_name') or 'Sin informar')
+    line('Reporte realizado por',d.get('reporter_name') or d['name'])
     line('Total de personas afectadas',d.get('total_people') or 'Sin informar')
     line('Composición del hogar','; '.join(label+': '+str(d.get(key) if d.get(key) is not None else 'Sin informar') for key,label in COUNT_FIELDS.items()))
     line('Teléfono',d['phone'])
