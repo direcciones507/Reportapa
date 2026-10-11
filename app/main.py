@@ -281,7 +281,7 @@ def persist_report(request,form,key,data):
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
     fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/'))
     dedup=matching_keys(data,signing)
-    saved = []; photo_failed = False
+    saved = []; photo_failed = False; pending_photo_cleanup=[]
     try:
         with db() as c:
             c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(key,))
@@ -313,10 +313,10 @@ def persist_report(request,form,key,data):
                     # Only this attempt's newly created files can be removed/queued.
                     for filename in saved:
                         try: (directory/filename).unlink(missing_ok=True)
-                        except OSError:
-                            c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(filename,))
+                        except OSError: pending_photo_cleanup.append(filename)
                     saved=[]
             r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys,photo_upload_failed) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup,photo_failed)).fetchone()
+        queue_partial_photos(pending_photo_cleanup)
         return report_confirmation(r['id'],photo_failed)
     except Exception as error:
         # A lost COMMIT acknowledgement must never erase photos of a saved family.
@@ -324,7 +324,8 @@ def persist_report(request,form,key,data):
             try:
                 with db() as check:
                     confirmed=check.execute('SELECT id,request_hash,data,photo_upload_failed FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
-                if confirmed and confirmed['request_hash']==digest:
+                if confirmed and (confirmed['request_hash']==digest or (confirmed['photo_upload_failed'] and confirmed['data']==data)):
+                    queue_partial_photos(pending_photo_cleanup)
                     return report_confirmation(confirmed['id'],confirmed['photo_upload_failed'])
             except psycopg.Error:
                 # Outcome unknown: retain private files until DB recovery/reconciliation.
@@ -340,6 +341,16 @@ def persist_report(request,form,key,data):
                         c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(filename,))
             except psycopg.Error: pass  # Database outage: private orphan requires later reconciliation.
         raise
+
+def queue_partial_photos(filenames):
+    if not filenames: return
+    # Cleanup bookkeeping must never roll back a confirmed family report.
+    try:
+        with db() as c:
+            for filename in filenames:
+                c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(filename,))
+    except (psycopg.Error,PoolTimeout,TooManyRequests):
+        logger.warning('photo_cleanup_queue_unavailable partial_files=%s',len(filenames))
 
 def report_confirmation(identifier,photo_failed=False):
     result={'id':identifier,'notice':NOTICE}

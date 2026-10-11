@@ -163,3 +163,26 @@ def test_photo_fallback_never_confirms_failed_database_commit(live,data,monkeypa
     with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0
     retry=submit(live,data,key);assert retry.status_code==200
     with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==1
+
+
+def test_cleanup_queue_outage_cannot_cancel_confirmed_family(live,data,monkeypatch,caplog):
+    from pathlib import Path
+    original=m.db;unlink=Path.unlink;calls=0
+    @contextmanager
+    def cleanup_outage():
+        nonlocal calls
+        calls+=1
+        if calls==3:raise psycopg.errors.QueryCanceled('synthetic cleanup queue unavailable')
+        with original() as c:yield c
+    def full(_):raise OSError(errno.ENOSPC,'synthetic volume full')
+    def denied(path,*args,**kwargs):
+        if path.suffix=='.jpg':raise PermissionError('synthetic partial photo removal failure')
+        return unlink(path,*args,**kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(m,'db',cleanup_outage);patch.setattr(m.os,'fsync',full);patch.setattr(Path,'unlink',denied)
+        response=submit(live,data,photos=photo())
+    assert response.status_code==200 and response.json()['photo_warning']==m.PHOTO_WARNING
+    assert 'photo_cleanup_queue_unavailable' in caplog.text
+    with m.db() as c:
+        row=c.execute('SELECT id,photos FROM reports').fetchone()
+        assert row['id']==response.json()['id'] and row['photos']==[]

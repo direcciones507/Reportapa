@@ -7,7 +7,7 @@ Continúa el commit 06378aad49e242675c99cb50090f7287349d88b2. No cambia el pool 
 - Nuevos reportes: cero o una fotografía, hasta 5 MiB, formatos JPEG/PNG/WebP. Se conserva el procesamiento privado existente.
 - Históricos: las listas de dos o tres fotografías, el acceso privado y los PDF permanecen compatibles. No se recortan ni reescriben los archivos históricos.
 - Espacio insuficiente (reserva de 32 MiB), disco lleno, cuota, falta de permisos y errores de escritura/sincronización: el reporte se confirma en PostgreSQL con `photos=[]`. La respuesta y la pantalla de éxito incluyen exactamente: **No se puede subir la foto en este momento, pero puedes seguir con tu reporte.**
-- Solo se eliminan archivos parciales creados por el intento fallido. Si no se pueden eliminar, se utiliza la cola de limpieza existente. Nunca se sobrescribe un archivo: creación exclusiva con UUID y permisos 0600.
+- Solo se eliminan archivos parciales creados por el intento fallido. Si no se pueden eliminar, se utiliza la cola de limpieza existente después de confirmar el reporte. Un fallo de esa cola se registra sin cancelar el registro; los archivos parciales no encolados requieren conciliación posterior, nunca borrado indiscriminado. Nunca se sobrescribe un archivo: creación exclusiva con UUID y permisos 0600.
 - La migración 005 añade una marca de fallo, sin cambiar datos familiares ni listas históricas. Reintentar con la misma clave, con la foto original o sin ella, devuelve el mismo número. Cambiar los datos familiares con esa clave sigue dando conflicto.
 - La confirmación requiere COMMIT en PostgreSQL o una consulta que verifique su resultado. Una caída de PostgreSQL sigue siendo un error recuperable; nunca se confirma un reporte no guardado.
 - El arranque y el envío sin foto toleran fallos de acceso al directorio privado. Se conserva la validación de configuración y montaje persistente de Railway, evitando escribir fotos en un montaje incorrecto.
@@ -39,4 +39,4 @@ CI utiliza PostgreSQL 16 desechable y directorios privados temporales independie
 
 La carga progresiva anterior con tres fotos corresponde al protocolo anterior. Este ajuste vuelve a medir navegación, envíos sin foto y envíos con **una** foto, con los mismos umbrales y cortes automáticos. Los resultados se publican en el artefacto de GitHub Actions `reportapa-capacity-results`; no representan capacidad validada en Railway producción ni ocupación real de sus archivos.
 
-Pendiente: resultados del CI de este ajuste, ampliación manual verificada y autorización posterior de merge/despliegue. No declarar producción apta para miles de usuarios a partir de las pruebas de este runner.
+Antes de activar: comprobar CI verde del commit final, ampliación manual verificada y autorización posterior de merge/despliegue. No declarar producción apta para miles de usuarios a partir de las pruebas de este runner.
