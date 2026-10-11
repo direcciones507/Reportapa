@@ -22,3 +22,47 @@ def test_concurrent_idempotency(live,data):
     assert len({r.json()['id'] for r in responses})==1
     with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==1
     assert m.pool.get_stats()['pool_size']<=8
+
+def test_lost_commit_acknowledgement_keeps_saved_photo(live,data,monkeypatch):
+    import io,psycopg
+    from contextlib import contextmanager
+    from PIL import Image
+    original=m.db;calls=0
+    @contextmanager
+    def interrupted():
+        nonlocal calls
+        calls+=1;current=calls
+        with original() as connection:yield connection
+        if current==2:raise psycopg.OperationalError('synthetic lost COMMIT acknowledgement')
+    image=io.BytesIO();Image.new('RGB',(40,40)).save(image,'PNG')
+    with monkeypatch.context() as patch:
+        patch.setattr(m,'db',interrupted)
+        response=submit(live,data,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
+    assert response.status_code==200,response.text
+    with m.db() as c:
+        row=c.execute('SELECT photos FROM reports WHERE id=%s',(response.json()['id'],)).fetchone()
+    assert len(row['photos'])==1 and (m.photo_dir()/row['photos'][0]).is_file()
+
+
+def test_uncertain_commit_and_outage_never_erases_photos(live,data,monkeypatch):
+    import io,psycopg
+    from contextlib import contextmanager
+    from PIL import Image
+    original=m.db;calls=0
+    @contextmanager
+    def interrupted():
+        nonlocal calls
+        calls+=1;current=calls
+        if current==3:raise psycopg.OperationalError('synthetic recovery lookup unavailable')
+        with original() as connection:yield connection
+        if current==2:raise psycopg.OperationalError('synthetic lost COMMIT acknowledgement')
+    image=io.BytesIO();Image.new('RGB',(40,40)).save(image,'PNG')
+    key=str(uuid.uuid4())
+    with monkeypatch.context() as patch:
+        patch.setattr(m,'db',interrupted)
+        response=submit(live,data,key,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
+    assert response.status_code==503 and response.headers['retry-after']=='5'
+    with m.db() as c:row=c.execute('SELECT id,photos FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
+    assert len(row['photos'])==1 and (m.photo_dir()/row['photos'][0]).is_file()
+    retry=submit(live,data,key,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
+    assert retry.status_code==200 and retry.json()['id']==row['id']

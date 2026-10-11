@@ -28,7 +28,7 @@ pool = None
 
 @contextmanager
 def db():
-    if pool is None:
+    if pool is None or pool.conninfo != os.environ['DATABASE_URL']:
         with psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row) as connection:
             yield connection
     else:
@@ -60,7 +60,7 @@ async def lifespan(app):
     validate_runtime()
     active_pool = ConnectionPool(os.environ['DATABASE_URL'], min_size=2,
                           max_size=int(os.getenv('DB_POOL_MAX','8')), timeout=10,
-                          max_waiting=64, kwargs={'row_factory':dict_row,
+                          max_waiting=64, kwargs={'row_factory':dict_row,'application_name':'reportapa-web',
                           'options':'-c statement_timeout=15000 -c lock_timeout=10000'}, open=False)
     pool = active_pool
     await asyncio.to_thread(active_pool.open, wait=True)
