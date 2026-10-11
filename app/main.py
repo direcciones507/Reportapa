@@ -148,6 +148,18 @@ def clean_photo(content):
             out = io.BytesIO(); im.convert('RGB').save(out,'JPEG',quality=85); return out.getvalue()
     except (UnidentifiedImageError,ValueError,OSError,Image.DecompressionBombError): raise HTTPException(422,'Foto inválida: use JPG, PNG o WebP')
 
+@app.get('/og-image.png')
+def social_preview_image():
+    # Serve a predictable social-card size without changing the uploaded original.
+    with Image.open(ROOT/'static/og-reportapa.png') as original:
+        artwork = ImageOps.exif_transpose(original).convert('RGBA')
+        artwork.thumbnail((1200, 630), Image.Resampling.LANCZOS)
+        card = Image.new('RGBA', (1200, 630), (255, 255, 255, 255))
+        card.alpha_composite(artwork, ((1200-artwork.width)//2, (630-artwork.height)//2))
+        output = io.BytesIO()
+        card.convert('RGB').save(output, format='PNG', optimize=True)
+    return Response(content=output.getvalue(), media_type='image/png', headers={'Cache-Control':'public, max-age=3600'})
+
 @app.get('/')
 def home(): return FileResponse(ROOT/'static/index.html')
 @app.get('/admin')
