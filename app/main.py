@@ -294,7 +294,7 @@ def persist_report(request,form,key,data):
                 return report_confirmation(existing['id'],existing['photo_upload_failed'])
             identical=c.execute('SELECT 1 FROM reports WHERE request_hash=%s LIMIT 1',(digest,)).fetchone()
             if identical: raise HTTPException(409,'No se guardó otro reporte: el envío coincide exactamente con uno previo. Solicite revisión al administrador si necesita corregirlo.')
-            duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR (%s IS NOT NULL AND fingerprint=%s) LIMIT 1',(dedup,fingerprint,fingerprint)).fetchone()
+            duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR fingerprint=%s LIMIT 1',(dedup,fingerprint)).fetchone()
             if duplicate and form.get('new_damage') != 'yes':
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
             if photos:
