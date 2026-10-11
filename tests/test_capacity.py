@@ -66,3 +66,29 @@ def test_uncertain_commit_and_outage_never_erases_photos(live,data,monkeypatch):
     assert len(row['photos'])==1 and (m.photo_dir()/row['photos'][0]).is_file()
     retry=submit(live,data,key,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
     assert retry.status_code==200 and retry.json()['id']==row['id']
+
+def test_full_volume_rolls_back_without_false_confirmation(live,data,monkeypatch):
+    import errno,io
+    from PIL import Image
+    image=io.BytesIO();Image.new('RGB',(40,40)).save(image,'PNG')
+    def full(_):raise OSError(errno.ENOSPC,'synthetic volume full')
+    with monkeypatch.context() as patch:
+        patch.setattr(m.os,'fsync',full)
+        response=submit(live,data,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
+    assert response.status_code==503 and response.headers['retry-after']=='60'
+    with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0
+    assert not list(m.photo_dir().glob('*.jpg'))
+
+
+def test_sql_timeout_is_retryable(live,data,monkeypatch):
+    import psycopg
+    from contextlib import contextmanager
+    @contextmanager
+    def timeout():
+        raise psycopg.errors.QueryCanceled('synthetic statement timeout')
+        yield
+    with monkeypatch.context() as patch:
+        patch.setattr(m,'db',timeout)
+        response=submit(live,data)
+    assert response.status_code==503 and response.headers['retry-after']=='5'
+    with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0

@@ -1,4 +1,4 @@
-import shutil
+import shutil, errno
 import os, json, uuid, hashlib, hmac, time, io, re, secrets, asyncio
 from pathlib import Path
 from urllib.parse import urlparse
@@ -261,8 +261,11 @@ async def submit(request: Request):
     if form.get('consent') != 'yes': raise HTTPException(422,'Debe autorizar el uso privado de los datos')
     try:
         return await run_in_threadpool(persist_report,request,form,key,data)
-    except (PoolTimeout, TooManyRequests, psycopg.OperationalError):
+    except (PoolTimeout, TooManyRequests, psycopg.OperationalError, psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
         raise HTTPException(503,'Servicio temporalmente ocupado; vuelva a intentar.',headers={'Retry-After':'5'})
+    except OSError as error:
+        if error.errno not in (errno.ENOSPC,errno.EDQUOT): raise
+        raise HTTPException(503,'Espacio de fotografías temporalmente insuficiente; vuelva a intentar.',headers={'Retry-After':'60'})
     finally:
         await form.close()
 
