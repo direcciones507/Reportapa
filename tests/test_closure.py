@@ -59,10 +59,11 @@ def test_failed_photo_write_uses_existing_cleanup_queue(live,data,monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(os,'fdopen',lambda descriptor,mode:BrokenWriter(descriptor))
         patch.setattr(Path,'unlink',denied)
-        # No response should claim that a failed write saved the report.
-        with pytest.raises(OSError):submit(live,data,photos={'photos':('test.png',image.getvalue(),'image/png')})
+        response=submit(live,data,photos={'photos':('test.png',image.getvalue(),'image/png')})
+        assert response.status_code==200 and response.json()['photo_warning']==m.PHOTO_WARNING
     with m.db() as c:
-        assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0
+        assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==1
+        assert c.execute('SELECT photos FROM reports').fetchone()['photos']==[]
         assert c.execute('SELECT count(*) AS n FROM photo_cleanup').fetchone()['n']==1
     cleanup_photos(m.db,m.photo_dir())
     assert not list(m.photo_dir().glob('*.jpg'))
