@@ -149,3 +149,20 @@ def test_migration_and_legacy_matching(live,data):
         assert r['dedup_keys'] and r['data'].get('total_people') is None
         assert restarted.get('/api/admin/reports/'+r['id']+'/pdf').status_code==200
         assert submit(restarted,{**data,'family_name':'Nueva familia'}).json()['possible_duplicate']
+
+def test_pdf_hides_only_empty_age_groups_without_mutating_data(data,tmp_path):
+    d=m.validate({**data,'total_people':3,'age_0_5':0,'age_6_17':1,'age_18_59':2,'age_60_plus':0,'people_disability':0})
+    before=json.dumps(d,sort_keys=True)
+    report=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=d,status='pendiente',photos=[])
+    result=PdfReader(io.BytesIO(m.individual_pdf(report,tmp_path,m.HELP_STATES)))
+    text=result.pages[0].extract_text()
+    assert len(result.pages)==1 and '6 a 17 años: 1' in text and '18 a 59 años: 2' in text
+    assert '0 a 5 años' not in text and '60 años o más' not in text
+    assert json.dumps(d,sort_keys=True)==before and d['age_0_5']==d['age_60_plus']==0
+    # Spreadsheet retains zero fields and the unchanged calculation/validation contract.
+    rows=list(load_workbook(io.BytesIO(m.workbook([report],'todos')))['Reportes'].values)
+    row=dict(zip(*rows));assert row['0 a 5 años']==row['60 años o más']==0
+    assert row['Total de personas afectadas']==3
+    d['age_0_5']=None;d['age_60_plus']=None
+    omitted=PdfReader(io.BytesIO(m.individual_pdf(report,tmp_path,m.HELP_STATES))).pages[0].extract_text()
+    assert '0 a 5 años' not in omitted and '60 años o más' not in omitted

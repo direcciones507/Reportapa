@@ -66,3 +66,14 @@ test('each selected report supplies its own number and preserves its recipient',
 test('missing or malformed report number never prepares an unidentified message',()=>{
   for(const id of [undefined,null,'','RPA-undefined','another report'])assert.throws(()=>whatsappUrl('61234567',id),/número de reporte no es válido/);
 });
+
+test('household summary shows positive age groups without changing stored zero or missing values',()=>{
+  const page=render('61234567');
+  const data={family_name:'Familia',total_people:3,age_0_5:0,age_6_17:1,age_18_59:2,age_60_plus:0,people_disability:0};
+  const before=JSON.stringify(data);page.context.renderHousehold({data},{append(){}});
+  const rendered=page.elements.map(e=>e.textContent||'').join('\n');
+  assert.match(rendered,/6 a 17 años: 1/);assert.match(rendered,/18 a 59 años: 2/);
+  assert.doesNotMatch(rendered,/0 a 5 años|60 años o más/);assert.equal(JSON.stringify(data),before);
+  const legacy=render('61234567');legacy.context.renderHousehold({data:{name:'Histórico'}},{append(){}});
+  assert.doesNotMatch(legacy.elements.map(e=>e.textContent||'').join('\n'),/0 a 5 años|6 a 17 años|18 a 59 años|60 años o más/);
+});

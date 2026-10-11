@@ -8,7 +8,7 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Paragraph, KeepInFrame
-from .report_data import COUNT_FIELDS
+from .report_data import COUNT_FIELDS, AGE_GROUPS
 
 
 def individual_pdf(report, directory, states):
@@ -28,7 +28,7 @@ def individual_pdf(report, directory, states):
     line('Responsable' if d.get('family_name') else 'Nombre original (persona/familia)',d['name']);line('Familia',d.get('family_name') or 'Sin informar')
     line('Reporte realizado por',d.get('reporter_name') or d['name'])
     line('Total de personas afectadas',d.get('total_people') or 'Sin informar')
-    line('Composición del hogar','; '.join(label+': '+str(d.get(key) if d.get(key) is not None else 'Sin informar') for key,label in COUNT_FIELDS.items()))
+    line('Composición del hogar','; '.join(label+': '+str(d.get(key) if d.get(key) is not None else 'Sin informar') for key,label in COUNT_FIELDS.items() if key not in AGE_GROUPS or (d.get(key) or 0)>0))
     line('Teléfono',d['phone'])
     line('Ubicación',' / '.join(d[k] for k in ('province','district','township','community')))
     maps_url=str(d.get('maps','')).strip()
