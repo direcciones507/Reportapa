@@ -1,6 +1,7 @@
 """Private single-page case sheet, separate from the aggregated summary."""
 import io, re
 from xml.sax.saxutils import escape
+from urllib.parse import urlparse
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
@@ -30,7 +31,14 @@ def individual_pdf(report, directory, states):
     line('Composición del hogar','; '.join(label+': '+str(d.get(key) if d.get(key) is not None else 'Sin informar') for key,label in COUNT_FIELDS.items()))
     line('Teléfono',d['phone'])
     line('Ubicación',' / '.join(d[k] for k in ('province','district','township','community')))
-    line('Google Maps',d['maps']);
+    maps_url=str(d.get('maps','')).strip()
+    parsed_maps=urlparse(maps_url)
+    if (parsed_maps.scheme=='https' and parsed_maps.hostname in
+            ('maps.app.goo.gl','goo.gl','www.google.com','google.com','maps.google.com')):
+        safe_url=escape(maps_url, {'"':'&quot;', "'":'&apos;'})
+        content.append(Paragraph('<b>Google Maps:</b> <link href="'+safe_url+'" color="#075da8"><u>Abrir ubicación en Google Maps</u></link>',style))
+    else:
+        line('Google Maps',maps_url or 'Sin informar')
     if d.get('coordinates'): line('Coordenadas del enlace',str(d['coordinates']['latitude'])+', '+str(d['coordinates']['longitude']))
     if report.get('archived_at'): line('Archivo','Archivado; datos conservados')
     line('Estado operativo',report['status'])
