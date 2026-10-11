@@ -19,7 +19,7 @@ NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adulto
 FIELDS = ['name','phone','province','district','township','community','maps','damage_type','damage','needs_detail']
 ADMIN_USERNAME = 'Ayudapanama'
 HELP_STATES = {'pendiente_confirmar':'Pendiente de confirmar','sin_ayuda':'Sin ayuda recibida','parcial':'Ayuda parcial','completa':'Ayuda completa'}
-NOTICE = 'ReportaPA es una iniciativa ciudadana independiente y gratuita. Recopilamos reportes de daños y necesidades para elaborar informes consolidados y ponerlos en conocimiento de las autoridades correspondientes. El registro no garantiza inspecciones ni entrega de ayuda.'
+NOTICE = 'ReportaPA está para apoyarte. Si tu vivienda o familia se ha visto afectada por un sismo u otra emergencia, comparte tu situación y necesidades. Reunimos esta información para identificar comunidades afectadas y preparar reportes dirigidos a autoridades y organizaciones de apoyo, buscando facilitar la gestión de ayuda. Tu reporte contribuye a que más familias sean escuchadas. Iniciativa ciudadana independiente y gratuita.'
 
 def db():
     return psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row)
