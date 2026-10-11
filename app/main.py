@@ -19,7 +19,7 @@ NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adulto
 FIELDS = ['name','phone','province','district','township','community','maps','damage_type','damage','needs_detail']
 ADMIN_USERNAME = 'Ayudapanama'
 HELP_STATES = {'pendiente_confirmar':'Pendiente de confirmar','sin_ayuda':'Sin ayuda recibida','parcial':'Ayuda parcial','completa':'Ayuda completa'}
-NOTICE = 'Este es un registro ciudadano independiente. Reportar daños o necesidades no garantiza una inspección ni la entrega de ayuda. Si existe peligro inmediato, contacte a las autoridades de emergencia.'
+NOTICE = 'ReportaPA es una iniciativa ciudadana independiente y gratuita. Recopilamos reportes de daños y necesidades para elaborar informes consolidados y ponerlos en conocimiento de las autoridades correspondientes. El registro no garantiza inspecciones ni entrega de ayuda.'
 
 def db():
     return psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row)
