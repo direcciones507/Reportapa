@@ -1,7 +1,10 @@
+import shutil
 import os, json, uuid, hashlib, hmac, time, io, re, secrets, asyncio
 from pathlib import Path
 from urllib.parse import urlparse
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from psycopg_pool import ConnectionPool, PoolTimeout, TooManyRequests
+from starlette.concurrency import run_in_threadpool
 import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, Request, HTTPException, Depends
@@ -21,8 +24,17 @@ ADMIN_USERNAME = 'Ayudapanama'
 HELP_STATES = {'pendiente_confirmar':'Pendiente de confirmar','sin_ayuda':'Sin ayuda recibida','parcial':'Ayuda parcial','completa':'Ayuda completa'}
 NOTICE = 'ReportaPA está para apoyarte. Si tu vivienda o familia se ha visto afectada por un sismo u otra emergencia, comparte tu situación y necesidades. Reunimos esta información para identificar comunidades afectadas y preparar reportes dirigidos a autoridades y organizaciones de apoyo, buscando facilitar la gestión de ayuda. Tu reporte contribuye a que más familias sean escuchadas. Iniciativa ciudadana independiente y gratuita.'
 
+pool = None
+
+@contextmanager
 def db():
-    return psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row)
+    if pool is None:
+        with psycopg.connect(os.environ['DATABASE_URL'], row_factory=dict_row) as connection:
+            yield connection
+    else:
+        with pool.connection() as connection:
+            yield connection
+
 
 def photo_dir():
     p = Path(os.getenv('PHOTO_DIR', '/data/private-photos')); p.mkdir(mode=0o700, parents=True, exist_ok=True); return p
@@ -43,7 +55,15 @@ def validate_runtime():
 
 @asynccontextmanager
 async def lifespan(app):
+    global pool
     validate_runtime()
+    pool = ConnectionPool(os.environ['DATABASE_URL'], min_size=2,
+                          max_size=int(os.getenv('DB_POOL_MAX','8')), timeout=10,
+                          max_waiting=64, kwargs={'row_factory':dict_row,
+                          'options':'-c statement_timeout=15000 -c lock_timeout=10000'}, open=False)
+    await asyncio.to_thread(pool.open, wait=True)
+    app.state.waiting_submissions = 0
+    app.state.submissions = asyncio.Semaphore(int(os.getenv('SUBMISSION_WORKERS','8')))
     with db() as c:
         c.execute("SELECT pg_advisory_xact_lock(hashtextextended('reportapa-migrations',2))")
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
@@ -58,7 +78,9 @@ async def lifespan(app):
     async def maintain():
         while True:
             await asyncio.sleep(30)
-            try: await asyncio.to_thread(cleanup_photos,db,photo_dir())
+            try:
+                await asyncio.to_thread(cleanup_photos,db,photo_dir())
+                await asyncio.to_thread(prune_limits)
             except (psycopg.Error,OSError): pass  # Retry after transient database interruption.
     worker=asyncio.create_task(maintain())
     try: yield
@@ -66,9 +88,31 @@ async def lifespan(app):
         worker.cancel()
         try: await worker
         except asyncio.CancelledError: pass
+        await asyncio.to_thread(pool.close)
+        pool = None
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.mount('/static', StaticFiles(directory=ROOT/'static'), name='static')
+
+async def admission(request, call_next):
+    if request.url.path != '/api/reports' or request.method != 'POST':
+        return await call_next(request)
+    gate = getattr(app.state,'submissions',None)
+    if gate is None: return await call_next(request)
+    busy = JSONResponse({'detail':'Servicio temporalmente ocupado; vuelva a intentar.'},
+                        status_code=503,headers={'Retry-After':'5','Cache-Control':'no-store'})
+    if app.state.waiting_submissions >= 128: return busy
+    app.state.waiting_submissions += 1
+    acquired = False
+    try:
+        await asyncio.wait_for(gate.acquire(),timeout=15)
+        acquired = True
+        return await call_next(request)
+    except asyncio.TimeoutError:
+        return busy
+    finally:
+        app.state.waiting_submissions -= 1
+        if acquired: gate.release()
 
 @app.middleware('http')
 async def headers(request, call_next):
@@ -82,6 +126,8 @@ async def headers(request, call_next):
     response = await call_next(request)
     response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','X-Robots-Tag':'noindex, nofollow','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"})
     return response
+
+app.middleware('http')(admission)
 
 def signing(value):
     return hmac.new(os.environ['SESSION_SECRET'].encode(), value.encode(), hashlib.sha256).hexdigest()
@@ -100,13 +146,16 @@ def admin(request: Request):
         raise HTTPException(403,'Solicitud inválida')
     return token
 
-def limit(request, action, maximum):
+def limit(request, action, maximum, identity=None):
     # Use the direct peer; do not trust client-supplied forwarding headers.
-    key = signing(action+':'+(request.client.host if request.client else 'unknown'))
+    key = signing(action+':'+(identity if identity is not None else (request.client.host if request.client else 'unknown')))
     with db() as c:
         r = c.execute("INSERT INTO request_limits(key,count) VALUES (%s,1) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.started_at < now()-interval '15 minutes' THEN 1 ELSE request_limits.count+1 END, started_at=CASE WHEN request_limits.started_at < now()-interval '15 minutes' THEN now() ELSE request_limits.started_at END RETURNING count",(key,)).fetchone()
-        c.execute("DELETE FROM request_limits WHERE started_at < now()-interval '1 day'")
+
     if r['count'] > maximum: raise HTTPException(429,'Demasiados intentos. Espere 15 minutos.')
+
+def prune_limits():
+    with db() as c: c.execute("DELETE FROM request_limits WHERE started_at < now()-interval '1 day'")
 
 def validate(raw):
     data = {k: str(raw.get(k,'')).strip() for k in FIELDS}
@@ -202,17 +251,27 @@ def logout(token=Depends(admin)):
 @app.post('/api/reports')
 async def submit(request: Request):
     if os.getenv('PUBLIC_REPORTS_ENABLED','false') != 'true': raise HTTPException(503,'Recepción de reportes aún no habilitada')
-    limit(request,'submit',20)
     form = await request.form(max_files=3,max_fields=40)
     if form.get('website'): raise HTTPException(422,'Solicitud inválida')
     try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
     except ValueError: raise HTTPException(422,'Clave de envío inválida')
     raw = dict(form); raw['needs'] = form.getlist('needs'); data = validate(raw)
     if form.get('consent') != 'yes': raise HTTPException(422,'Debe autorizar el uso privado de los datos')
+    try:
+        return await run_in_threadpool(persist_report,request,form,key,data)
+    except (PoolTimeout, TooManyRequests, psycopg.OperationalError):
+        raise HTTPException(503,'Servicio temporalmente ocupado; vuelva a intentar.',headers={'Retry-After':'5'})
+    finally:
+        await form.close()
+
+
+def persist_report(request,form,key,data):
+    # Families sharing Wi-Fi/proxy have independent counters; no forwarding header trust.
+    limit(request,'submit',20,identity=data['phone'])
     photos = []
     for f in form.getlist('photos'):
         if hasattr(f,'read') and f.filename:
-            photos.append(clean_photo(await f.read(5*1024*1024+1)))
+            photos.append(clean_photo(f.file.read(5*1024*1024+1)))
     if len(photos)>3: raise HTTPException(422,'Máximo tres fotos')
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
     fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/'))
@@ -221,7 +280,7 @@ async def submit(request: Request):
     try:
         with db() as c:
             c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(key,))
-            for match_key in dedup:
+            for match_key in sorted(dedup):
                 c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,1))',(match_key,))
             existing = c.execute('SELECT id,request_hash FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
             if existing:
@@ -232,14 +291,27 @@ async def submit(request: Request):
             duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR fingerprint=%s LIMIT 1',(dedup,fingerprint)).fetchone()
             if duplicate and form.get('new_damage') != 'yes':
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
+            if photos and shutil.disk_usage(photo_dir()).free < sum(map(len,photos))+32*1024*1024:
+                raise HTTPException(503,'Espacio de fotografías temporalmente insuficiente; vuelva a intentar.',headers={'Retry-After':'60'})
             for photo in photos:
                 filename = uuid.uuid4().hex+'.jpg'; path = photo_dir()/filename
                 descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                 saved.append(filename)
-                with os.fdopen(descriptor,'wb') as output: output.write(photo)
+                with os.fdopen(descriptor,'wb') as output:
+                    output.write(photo); output.flush(); os.fsync(output.fileno())
             r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup)).fetchone()
         return {'id':r['id'],'notice':NOTICE}
-    except Exception:
+    except Exception as error:
+        # A lost COMMIT acknowledgement must never erase photos of a saved family.
+        if saved and isinstance(error,psycopg.OperationalError):
+            try:
+                with db() as check:
+                    confirmed=check.execute('SELECT id,request_hash FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
+                if confirmed and confirmed['request_hash']==digest:
+                    return {'id':confirmed['id'],'notice':NOTICE}
+            except psycopg.Error:
+                # Outcome unknown: retain private files until DB recovery/reconciliation.
+                raise error
         pending=[]
         for filename in saved:
             try: (photo_dir()/filename).unlink(missing_ok=True)
