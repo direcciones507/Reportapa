@@ -165,21 +165,22 @@ def prune_limits():
 def validate(raw):
     data = {k: str(raw.get(k,'')).strip() for k in FIELDS}
     for k in FIELDS:
-        if k not in ('needs_detail','damage_type') and not data[k]: raise HTTPException(422,'Complete los campos obligatorios')
+        if k not in ('needs_detail','damage_type','maps') and not data[k]: raise HTTPException(422,'Complete los campos obligatorios')
         if len(data[k]) > (1500 if k in ('damage','needs_detail') else 300): raise HTTPException(422,'Campo demasiado largo')
     if not re.fullmatch(r'[+0-9() .-]+',data['phone']): raise HTTPException(422,'Teléfono de Panamá inválido')
     data['phone'] = re.sub(r'[^0-9]','',data['phone'])
     if len(data['phone']) == 11 and data['phone'].startswith('507'): data['phone'] = data['phone'][3:]
     if not re.fullmatch(r'[2-9][0-9]{6,7}',data['phone']): raise HTTPException(422,'Teléfono de Panamá inválido')
-    try:
-        u = urlparse(data['maps'])
-        port = u.port
-    except ValueError: raise HTTPException(422,'Enlace Maps inválido')
-    if u.scheme != 'https' or u.username or u.password or port or u.hostname not in ('maps.app.goo.gl','goo.gl','www.google.com','google.com','maps.google.com'):
-        raise HTTPException(422,'Use un enlace HTTPS compartido de Google Maps')
-    if u.hostname in ('google.com','www.google.com') and not u.path.startswith('/maps'): raise HTTPException(422,'Enlace Maps inválido')
-    if u.hostname == 'goo.gl' and not u.path.startswith('/maps/'): raise HTTPException(422,'Enlace Maps inválido')
-    if not u.path.strip('/'): raise HTTPException(422,'Enlace Maps incompleto')
+    if data['maps']:
+        try:
+            u = urlparse(data['maps'])
+            port = u.port
+        except ValueError: raise HTTPException(422,'Enlace Maps inválido')
+        if u.scheme != 'https' or u.username or u.password or port or u.hostname not in ('maps.app.goo.gl','goo.gl','www.google.com','google.com','maps.google.com'):
+            raise HTTPException(422,'Use un enlace HTTPS compartido de Google Maps')
+        if u.hostname in ('google.com','www.google.com') and not u.path.startswith('/maps'): raise HTTPException(422,'Enlace Maps inválido')
+        if u.hostname == 'goo.gl' and not u.path.startswith('/maps/'): raise HTTPException(422,'Enlace Maps inválido')
+        if not u.path.strip('/'): raise HTTPException(422,'Enlace Maps incompleto')
     needs = raw.get('needs',[])
     if not isinstance(needs,list) or any(n not in NEEDS for n in needs): raise HTTPException(422,'Necesidad inválida')
     data['needs'] = list(dict.fromkeys(needs))
@@ -279,7 +280,7 @@ def persist_report(request,form,key,data):
             photos.append(clean_photo(f.file.read(5*1024*1024+1)))
     if len(photos)>1: raise HTTPException(422,'Máximo una foto')
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
-    fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/'))
+    fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/')) if data['maps'] else None
     dedup=matching_keys(data,signing)
     saved = []; photo_failed = False; pending_photo_cleanup=[]
     try:
@@ -293,7 +294,7 @@ def persist_report(request,form,key,data):
                 return report_confirmation(existing['id'],existing['photo_upload_failed'])
             identical=c.execute('SELECT 1 FROM reports WHERE request_hash=%s LIMIT 1',(digest,)).fetchone()
             if identical: raise HTTPException(409,'No se guardó otro reporte: el envío coincide exactamente con uno previo. Solicite revisión al administrador si necesita corregirlo.')
-            duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR fingerprint=%s LIMIT 1',(dedup,fingerprint)).fetchone()
+            duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR (%s IS NOT NULL AND fingerprint=%s) LIMIT 1',(dedup,fingerprint,fingerprint)).fetchone()
             if duplicate and form.get('new_damage') != 'yes':
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
             if photos:
