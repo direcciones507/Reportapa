@@ -48,7 +48,8 @@ def normal(value):
 def matching_keys(data,sign):
     phone=data['phone'];location='|'.join(normal(data[k]) for k in ('province','district','township','community'))
     place=data.get('coordinates');identity=normal(data.get('family_name') or data.get('name'))
-    keys=[sign('phone-map|'+phone+'|'+data['maps'].rstrip('/')),sign('phone-sector|'+phone+'|'+location),sign('family-sector|'+identity+'|'+location)]
+    keys=[sign('phone-sector|'+phone+'|'+location),sign('family-sector|'+identity+'|'+location)]
+    if data.get('maps'): keys.append(sign('phone-map|'+phone+'|'+data['maps'].rstrip('/')))
     if place:
         point=f"{place['latitude']:.5f},{place['longitude']:.5f}"
         keys.extend([sign('phone-point|'+phone+'|'+point),sign('family-point|'+identity+'|'+point)])
