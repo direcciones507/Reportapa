@@ -280,7 +280,7 @@ def persist_report(request,form,key,data):
             photos.append(clean_photo(f.file.read(5*1024*1024+1)))
     if len(photos)>1: raise HTTPException(422,'Máximo una foto')
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
-    fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/')) if data['maps'] else None
+    fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/')) if data['maps'] else signing('no-map|'+key)
     dedup=matching_keys(data,signing)
     saved = []; photo_failed = False; pending_photo_cleanup=[]
     try:
