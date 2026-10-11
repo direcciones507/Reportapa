@@ -129,6 +129,13 @@ def validate(raw):
     needs = raw.get('needs',[])
     if not isinstance(needs,list) or any(n not in NEEDS for n in needs): raise HTTPException(422,'Necesidad inválida')
     data['needs'] = list(dict.fromkeys(needs))
+    mode=str(raw.get('reporting_for_self','yes')).strip()
+    if mode not in ('yes','no'): raise HTTPException(422,'Indique quién realiza el reporte')
+    reporter=str(raw.get('reporter_name','')).strip()
+    if len(reporter)>300: raise HTTPException(422,'Nombre de quien reporta demasiado largo')
+    if mode=='no' and not reporter: raise HTTPException(422,'Indique el nombre de quien realiza el reporte')
+    data['reporting_for_self']=mode
+    data['reporter_name']=reporter if mode=='no' else ''
     data.update(household(raw));data['coordinates']=coordinates(data['maps'])
     return data
 
@@ -329,6 +336,7 @@ def workbook(records, filters, anonymous=False):
     wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
     columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre del responsable / nombre original','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
     columns += ['Nombre de familia','Total de personas afectadas',*COUNT_FIELDS.values()]
+    if not anonymous: columns += ['Reporte realizado por'] 
     if not anonymous: columns += ['Latitud','Longitud','Archivado']
     columns += ['Estado de ayuda','Fecha del último seguimiento']
     if not anonymous: columns.append('Observación de seguimiento')
@@ -337,6 +345,7 @@ def workbook(records, filters, anonymous=False):
         d=r['data']; base=[r['id'],r['created_at'].isoformat()]
         values = base+[d['province'],d['district'],d['township'],'','',', '.join(d['needs']),'',r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
         values += ['' if anonymous else d.get('family_name',''),d.get('total_people'),*[d.get(k) for k in COUNT_FIELDS]]
+        if not anonymous: values += [d.get('reporter_name') or d.get('name','')]
         if not anonymous:
             point=d.get('coordinates') or {}
             values += [point.get('latitude'),point.get('longitude'),'Sí' if r.get('archived_at') else 'No']
