@@ -41,9 +41,9 @@ async def main():
                 result['environment']['max_connections']=int(db.execute('SHOW max_connections').fetchone()[0])
                 db.execute('TRUNCATE reports,request_limits,admin_sessions,photo_cleanup,deleted_reports')
             serial=0
-            for scenario in ('navigation','submit_0_photos','submit_3_photos','sustained_0_photos','sustained_3_photos'):
+            for scenario in ('navigation','submit_0_photos','submit_1_photo','sustained_0_photos','sustained_1_photo'):
                 sustained=scenario.startswith('sustained')
-                for users in ([5 if scenario.endswith('3_photos') else 20] if sustained else STAGES):
+                for users in ([5 if scenario.endswith('1_photo') else 20] if sustained else STAGES):
                     latencies=[];status=collections.Counter(); ids=[]; samples=[];stop_monitor=False
                     async def sample():
                         while not stop_monitor:
@@ -63,7 +63,7 @@ async def main():
                                     response=await client.get(('/', '/api/config','/static/citizen.js')[iteration])
                                 else:
                                     data={'name':f'Prueba {number}','family_name':f'Sintetica {number}','total_people':'4','phone':str(60000000+number),'province':'Veraguas','district':'Santiago','township':'Santiago','community':f'Sector {number}','maps':f'https://maps.app.goo.gl/load{number}','damage':f'Daño sintético {number}','consent':'yes','idempotency_key':str(uuid.uuid4()),'needs':'Agua potable'}
-                                    files=[('photos',('synthetic.jpg',photo,'image/jpeg'))]*3 if scenario.endswith('3_photos') else [('photos',('',b'','application/octet-stream'))]
+                                    files=[('photos',('synthetic.jpg',photo,'image/jpeg'))] if scenario.endswith('1_photo') else [('photos',('',b'','application/octet-stream'))]
                                     response=await client.post('/api/reports',data=data,files=files)
                                 status[str(response.status_code)]+=1
                                 if response.status_code==200 and scenario!='navigation':ids.append(response.json()['id'])

@@ -67,7 +67,7 @@ def test_uncertain_commit_and_outage_never_erases_photos(live,data,monkeypatch):
     retry=submit(live,data,key,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
     assert retry.status_code==200 and retry.json()['id']==row['id']
 
-def test_full_volume_rolls_back_without_false_confirmation(live,data,monkeypatch):
+def test_full_volume_saves_family_without_photo(live,data,monkeypatch):
     import errno,io
     from PIL import Image
     image=io.BytesIO();Image.new('RGB',(40,40)).save(image,'PNG')
@@ -75,8 +75,8 @@ def test_full_volume_rolls_back_without_false_confirmation(live,data,monkeypatch
     with monkeypatch.context() as patch:
         patch.setattr(m.os,'fsync',full)
         response=submit(live,data,photos={'photos':('synthetic.png',image.getvalue(),'image/png')})
-    assert response.status_code==503 and response.headers['retry-after']=='60'
-    with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==0
+    assert response.status_code==200 and response.json()['photo_warning']==m.PHOTO_WARNING
+    with m.db() as c:assert c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']==1
     assert not list(m.photo_dir().glob('*.jpg'))
 
 

@@ -36,7 +36,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: python -m pytest -q
       - run: node --check app/static/citizen.js && node --check app/static/admin.js
-      - run: node --test tests/test_followup.js
+      - run: node --test tests/test_*.js
       - run: docker build --tag reportapa-ci .
       - run: python scripts/load_capacity.py
       - uses: actions/upload-artifact@v4

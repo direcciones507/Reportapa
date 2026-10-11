@@ -1,4 +1,4 @@
-import shutil, errno
+import shutil, errno, logging
 import os, json, uuid, hashlib, hmac, time, io, re, secrets, asyncio
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,6 +17,8 @@ from .individual_pdf import individual_pdf
 from .report_data import household, coordinates, matching_keys, COUNT_FIELDS
 from .photo_maintenance import cleanup_photos
 
+logger = logging.getLogger('reportapa.storage')
+PHOTO_WARNING = 'No se puede subir la foto en este momento, pero puedes seguir con tu reporte.'
 ROOT = Path(__file__).resolve().parent
 NEEDS = ['Agua potable','Alimentos','Pañales para bebés','Pañales para adultos','Medicamentos','Ropa y cobijas','Colchones o lugar para dormir','Materiales para reparar la vivienda','Artículos de higiene','Otra necesidad']
 FIELDS = ['name','phone','province','district','township','community','maps','damage_type','damage','needs_detail']
@@ -70,13 +72,14 @@ async def lifespan(app):
         c.execute("SELECT pg_advisory_xact_lock(hashtextextended('reportapa-migrations',2))")
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
             c.execute(migration.read_text())
-    photo_dir()
+    # Photo storage may fail independently of the family database.
     # Backfill matching keys from real legacy data; do not invent household counts.
     with db() as c:
         for report in c.execute("SELECT id,data FROM reports WHERE dedup_keys='{}'").fetchall():
             data=report['data'];data['coordinates']=coordinates(data['maps'])
             c.execute('UPDATE reports SET data=%s::jsonb,dedup_keys=%s WHERE id=%s',(json.dumps(data),matching_keys(data,signing),report['id']))
-    await asyncio.to_thread(cleanup_photos,db,photo_dir())
+    try: await asyncio.to_thread(cleanup_photos,db,photo_dir())
+    except OSError as error: logger.warning('photo_storage_unavailable stage=startup errno=%s',error.errno)
     async def maintain():
         while True:
             await asyncio.sleep(30)
@@ -253,19 +256,16 @@ def logout(token=Depends(admin)):
 @app.post('/api/reports')
 async def submit(request: Request):
     if os.getenv('PUBLIC_REPORTS_ENABLED','false') != 'true': raise HTTPException(503,'Recepción de reportes aún no habilitada')
-    form = await request.form(max_files=3,max_fields=40)
-    if form.get('website'): raise HTTPException(422,'Solicitud inválida')
-    try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
-    except ValueError: raise HTTPException(422,'Clave de envío inválida')
-    raw = dict(form); raw['needs'] = form.getlist('needs'); data = validate(raw)
-    if form.get('consent') != 'yes': raise HTTPException(422,'Debe autorizar el uso privado de los datos')
+    form = await request.form(max_files=1,max_fields=40)
     try:
+        if form.get('website'): raise HTTPException(422,'Solicitud inválida')
+        try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
+        except ValueError: raise HTTPException(422,'Clave de envío inválida')
+        raw = dict(form); raw['needs'] = form.getlist('needs'); data = validate(raw)
+        if form.get('consent') != 'yes': raise HTTPException(422,'Debe autorizar el uso privado de los datos')
         return await run_in_threadpool(persist_report,request,form,key,data)
     except (PoolTimeout, TooManyRequests, psycopg.OperationalError, psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
         raise HTTPException(503,'Servicio temporalmente ocupado; vuelva a intentar.',headers={'Retry-After':'5'})
-    except OSError as error:
-        if error.errno not in (errno.ENOSPC,errno.EDQUOT): raise
-        raise HTTPException(503,'Espacio de fotografías temporalmente insuficiente; vuelva a intentar.',headers={'Retry-After':'60'})
     finally:
         await form.close()
 
@@ -277,43 +277,55 @@ def persist_report(request,form,key,data):
     for f in form.getlist('photos'):
         if hasattr(f,'read') and f.filename:
             photos.append(clean_photo(f.file.read(5*1024*1024+1)))
-    if len(photos)>3: raise HTTPException(422,'Máximo tres fotos')
+    if len(photos)>1: raise HTTPException(422,'Máximo una foto')
     digest = hashlib.sha256(json.dumps(data,sort_keys=True).encode()+b''.join(hashlib.sha256(p).digest() for p in photos)).hexdigest()
     fingerprint = signing(data['phone']+'|'+data['maps'].rstrip('/'))
     dedup=matching_keys(data,signing)
-    saved = []
+    saved = []; photo_failed = False
     try:
         with db() as c:
             c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(key,))
             for match_key in sorted(dedup):
                 c.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,1))',(match_key,))
-            existing = c.execute('SELECT id,request_hash FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
+            existing = c.execute('SELECT id,request_hash,data,photo_upload_failed FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
             if existing:
-                if existing['request_hash'] != digest: raise HTTPException(409,'La clave ya se utilizó con otro contenido')
-                return {'id':existing['id'],'notice':NOTICE}
+                if existing['request_hash'] != digest and not (existing['photo_upload_failed'] and existing['data']==data): raise HTTPException(409,'La clave ya se utilizó con otro contenido')
+                return report_confirmation(existing['id'],existing['photo_upload_failed'])
             identical=c.execute('SELECT 1 FROM reports WHERE request_hash=%s LIMIT 1',(digest,)).fetchone()
             if identical: raise HTTPException(409,'No se guardó otro reporte: el envío coincide exactamente con uno previo. Solicite revisión al administrador si necesita corregirlo.')
             duplicate = c.execute('SELECT 1 FROM reports WHERE dedup_keys && %s::text[] OR fingerprint=%s LIMIT 1',(dedup,fingerprint)).fetchone()
             if duplicate and form.get('new_damage') != 'yes':
                 return JSONResponse({'possible_duplicate':True,'message':'Hay una coincidencia probable. Si son daños nuevos o corresponde a otra familia, confirme para enviar un nuevo reporte.'},status_code=409)
-            if photos and shutil.disk_usage(photo_dir()).free < sum(map(len,photos))+32*1024*1024:
-                raise HTTPException(503,'Espacio de fotografías temporalmente insuficiente; vuelva a intentar.',headers={'Retry-After':'60'})
-            for photo in photos:
-                filename = uuid.uuid4().hex+'.jpg'; path = photo_dir()/filename
-                descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-                saved.append(filename)
-                with os.fdopen(descriptor,'wb') as output:
-                    output.write(photo); output.flush(); os.fsync(output.fileno())
-            r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup)).fetchone()
-        return {'id':r['id'],'notice':NOTICE}
+            if photos:
+                try:
+                    directory=photo_dir()
+                    if shutil.disk_usage(directory).free < sum(map(len,photos))+32*1024*1024:
+                        raise OSError(errno.ENOSPC,'photo storage reserve exhausted')
+                    for photo in photos:
+                        filename=uuid.uuid4().hex+'.jpg';path=directory/filename
+                        descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                        saved.append(filename)
+                        with os.fdopen(descriptor,'wb') as output:
+                            output.write(photo);output.flush();os.fsync(output.fileno())
+                except OSError as error:
+                    photo_failed=True
+                    logger.warning('photo_storage_unavailable stage=submit errno=%s',error.errno)
+                    # Only this attempt's newly created files can be removed/queued.
+                    for filename in saved:
+                        try: (directory/filename).unlink(missing_ok=True)
+                        except OSError:
+                            c.execute('INSERT INTO photo_cleanup(filename) VALUES (%s) ON CONFLICT DO NOTHING',(filename,))
+                    saved=[]
+            r = c.execute('INSERT INTO reports(idempotency_key,request_hash,fingerprint,data,photos,dedup_keys,photo_upload_failed) VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING id',(key,digest,fingerprint,json.dumps(data),json.dumps(saved),dedup,photo_failed)).fetchone()
+        return report_confirmation(r['id'],photo_failed)
     except Exception as error:
         # A lost COMMIT acknowledgement must never erase photos of a saved family.
-        if saved and isinstance(error,psycopg.OperationalError):
+        if isinstance(error,psycopg.OperationalError):
             try:
                 with db() as check:
-                    confirmed=check.execute('SELECT id,request_hash FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
+                    confirmed=check.execute('SELECT id,request_hash,data,photo_upload_failed FROM reports WHERE idempotency_key=%s',(key,)).fetchone()
                 if confirmed and confirmed['request_hash']==digest:
-                    return {'id':confirmed['id'],'notice':NOTICE}
+                    return report_confirmation(confirmed['id'],confirmed['photo_upload_failed'])
             except psycopg.Error:
                 # Outcome unknown: retain private files until DB recovery/reconciliation.
                 raise error
@@ -329,7 +341,28 @@ def persist_report(request,form,key,data):
             except psycopg.Error: pass  # Database outage: private orphan requires later reconciliation.
         raise
 
-def rows(request, all_rows=False):
+def report_confirmation(identifier,photo_failed=False):
+    result={'id':identifier,'notice':NOTICE}
+    if photo_failed: result['photo_warning']=PHOTO_WARNING
+    return result
+
+@app.get('/api/admin/storage')
+def storage_metrics(token=Depends(admin)):
+    with db() as c:
+        total=c.execute('SELECT count(*) AS n FROM reports').fetchone()['n']
+    result={'total_reports':total,'photographs':None,'used_bytes':None,'available_bytes':None,'total_bytes':None,'occupation_percent':None,'alert':None,'storage_available':False,'measured_at':time.time()}
+    try:
+        directory=photo_dir();disk=shutil.disk_usage(directory)
+        # Scan actual private files; historical reports can still have multiple photos.
+        with os.scandir(directory) as entries:
+            count=sum(1 for entry in entries if re.fullmatch(r'[a-f0-9]{32}\.jpg',entry.name) and entry.is_file(follow_symlinks=False))
+        occupied=100*(disk.total-disk.free)/disk.total
+        result.update(photographs=count,used_bytes=disk.total-disk.free,available_bytes=disk.free,total_bytes=disk.total,occupation_percent=round(occupied,2),alert=next((level for level in (95,85,70) if occupied>=level),None),storage_available=True)
+    except OSError as error:
+        logger.warning('photo_storage_unavailable stage=metrics errno=%s',error.errno)
+    return result
+
+def rows(request, all_rows=False, page=None):
     clauses=[]; values=[]
     if not all_rows:
         archive=request.query_params.get('archive','active')
@@ -344,14 +377,16 @@ def rows(request, all_rows=False):
             elif key == 'need': clauses.append("data->'needs' ? %s")
             else: clauses.append('data->>%s = %s'); values.append(key)
             values.append(value)
-    sql = 'SELECT * FROM reports'+(' WHERE '+' AND '.join(clauses) if clauses else '')+" ORDER BY data->>'province',data->>'district',data->>'township',created_at"
-    with db() as c: return c.execute(sql,values).fetchall()
+    sql = 'SELECT * FROM reports'+(' WHERE '+' AND '.join(clauses) if clauses else '')+" ORDER BY data->>'province',data->>'district',data->>'township',created_at,id"
+    with db() as c:
+        if page is None: return c.execute(sql,values).fetchall()
+        total=c.execute('SELECT count(*) AS n FROM reports'+(' WHERE '+' AND '.join(clauses) if clauses else ''),values).fetchone()['n']
+        return {'total':total,'reports':c.execute(sql+' LIMIT 20 OFFSET %s',[*values,(page-1)*20]).fetchall()}
 @app.get('/api/admin/reports')
 def reports(request: Request, token=Depends(admin)):
-    result=rows(request)
     try: page=max(1,int(request.query_params.get('page','1')))
     except ValueError: raise HTTPException(422,'Página inválida')
-    return {'total':len(result),'reports':result[(page-1)*20:page*20]}
+    return rows(request,page=page)
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
     payload = await json_payload(request)
