@@ -262,7 +262,7 @@ def reports(request: Request, token=Depends(admin)):
     result=rows(request)
     try: page=max(1,int(request.query_params.get('page','1')))
     except ValueError: raise HTTPException(422,'Página inválida')
-    return {'total':len(result),'reports':result[(page-1)*10:page*10]}
+    return {'total':len(result),'reports':result[(page-1)*20:page*20]}
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
     payload = await json_payload(request)
