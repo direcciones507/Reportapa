@@ -62,5 +62,5 @@ def individual_pdf(report, directory, states):
             pdf.setFont('Helvetica',8);pdf.drawString(x+6,y+65,'Foto no disponible')
     pdf.setFillColor(HexColor('#526b79'));pdf.setFont('Helvetica',8)
     pdf.drawString(margin,49,'Información privada: compartir únicamente con personal autorizado.')
-    pdf.drawString(margin,36,'Registro ciudadano independiente. No garantiza inspección ni entrega de ayuda.')
+    pdf.drawString(margin,36,'Registro ciudadano independiente.')
     pdf.save();return out.getvalue()
