@@ -28,10 +28,10 @@ def test_excel(data):
     data=m.validate(data);data['name']='=HYPERLINK("evil")';data['damage']='secret damage';data['needs_detail']='private detail'
     rows=[dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=data,status='pendiente')]
     wb=load_workbook(io.BytesIO(m.workbook(rows,'todos')))
-    assert wb['Reportes']['C2'].data_type=='s'
-    assert wb['Información']['B3'].value==1
+    assert wb['Detalle de reportes']['C2'].data_type=='s'
+    assert wb['Resumen general']['B6'].value==1
     anonymous=load_workbook(io.BytesIO(m.workbook(rows,'todos',True)))
-    text=str(list(anonymous['Reportes'].values))
+    text=str(list(anonymous['Detalle de reportes'].values))
     for private in ['HYPERLINK','61234567','abc123','secret damage','private detail','Sector prueba']: assert private not in text
 
 def test_closed_and_auth(monkeypatch):
@@ -79,7 +79,7 @@ def test_postgres_flow(live,data):
     assert live.patch('/api/admin/reports/'+identifier,json={'status':'visitado'},headers=csrf).status_code==200
     assert live.get('/api/admin/reports?status=visitado&need=Agua%20potable').json()['total']==1
     r=live.get('/api/admin/export/master');assert r.status_code==200
-    wb=load_workbook(io.BytesIO(r.content));assert wb['Reportes'].max_row==3
+    wb=load_workbook(io.BytesIO(r.content));assert wb['Detalle de reportes'].max_row==3
     assert live.get('/api/admin/export/summary').content.startswith(b'%PDF')
     assert live.post('/api/admin/logout',headers=csrf).status_code==200
     assert live.get('/api/admin/reports').status_code==401
@@ -102,9 +102,9 @@ from pypdf import PdfReader
 def test_help_excel_privacy(data):
     report=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=m.validate(data),status='visitado',estado_ayuda='parcial',ayuda_actualizada_at=datetime.now(timezone.utc),ayuda_observacion='=CONFIDENTIAL_NOTE')
     wb=load_workbook(io.BytesIO(m.workbook([report],'todos')))
-    values=list(wb['Reportes'].values);assert values[1][-3]=='Ayuda parcial';assert values[1][-1]=='=CONFIDENTIAL_NOTE';assert wb['Reportes'].cell(2,len(values[0])).data_type=='s'
+    values=list(wb['Detalle de reportes'].values);assert values[1][-3]=='Ayuda parcial';assert values[1][-1]=='=CONFIDENTIAL_NOTE';assert wb['Detalle de reportes'].cell(2,len(values[0])).data_type=='s'
     anon=load_workbook(io.BytesIO(m.workbook([report],'todos',True)))
-    text=str(list(anon['Reportes'].values));assert 'CONFIDENTIAL_NOTE' not in text;assert 'Ayuda parcial' in text;assert '61234567' not in text
+    text=str(list(anon['Detalle de reportes'].values));assert 'CONFIDENTIAL_NOTE' not in text;assert 'Ayuda parcial' in text;assert '61234567' not in text
 
 def test_single_page_pdf(data,tmp_path):
     photos=[]
@@ -145,8 +145,8 @@ def test_help_persistence(live,data):
     for kind in ['master','area','anonymous']:
         result=live.get('/api/admin/export/'+kind+'?estado_ayuda=sin_ayuda')
         assert result.status_code==200
-        workbook=load_workbook(io.BytesIO(result.content));assert 'Sin ayuda recibida' in str(list(workbook['Reportes'].values))
-        if kind=='anonymous': assert 'Seguimiento privado' not in str(list(workbook['Reportes'].values))
+        workbook=load_workbook(io.BytesIO(result.content));assert 'Sin ayuda recibida' in str(list(workbook['Detalle de reportes'].values))
+        if kind=='anonymous': assert 'Seguimiento privado' not in str(list(workbook['Detalle de reportes'].values))
     pdf=live.get(url+'/pdf');assert pdf.status_code==200 and len(PdfReader(io.BytesIO(pdf.content)).pages)==1
     assert 'Sin ayuda recibida' in PdfReader(io.BytesIO(pdf.content)).pages[0].extract_text()
     assert live.get('/api/admin/export/summary').content.startswith(b'%PDF')

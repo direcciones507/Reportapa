@@ -2,7 +2,7 @@ name: ReportaPA tests
 on:
   workflow_dispatch:
   push:
-    branches: [fix/reportapa-capacity-20261011]
+    branches: [fix/reportapa-capacity-20261011, feat/reportapa-statistics-20261012]
   pull_request:
     branches: [main]
 concurrency:
