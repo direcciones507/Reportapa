@@ -3,3 +3,5 @@
 .help-attention{background:#fff4d9;color:#713f12;padding:10px;border-radius:8px}details p{font-size:14px}article section{margin-top:15px}
 
 button.danger{background:#9b2424}
+
+.admin-reports .report-stats .stat-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.admin-reports .stat-totals div{background:#f2f6f8;padding:16px;border-radius:10px}.admin-reports .stat-totals dt{font-size:14px}.admin-reports .stat-totals dd{font-size:24px;font-weight:700;margin:8px 0 0}.admin-reports .stat-scroll{overflow-x:auto;max-width:100%}.admin-reports .report-stats table{border-collapse:collapse;width:100%;font-size:14px}.admin-reports .report-stats th,.admin-reports .report-stats td{padding:10px;border-bottom:1px solid #dce6eb;vertical-align:top;text-align:left;min-width:110px}.admin-reports .report-stats th{background:#123f58;color:white}.admin-reports .report-stats button{white-space:nowrap}

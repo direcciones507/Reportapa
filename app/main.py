@@ -11,11 +11,13 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
-from openpyxl import Workbook
 from reportlab.pdfgen import canvas
 from .individual_pdf import individual_pdf
 from .report_data import household, coordinates, matching_keys, COUNT_FIELDS
 from .photo_maintenance import cleanup_photos
+from .report_statistics import statistics, UNSPECIFIED
+from .report_excel import statistical_workbook, PANAMA
+from datetime import date, datetime, time as datetime_time, timedelta
 
 logger = logging.getLogger('reportapa.storage')
 PHOTO_WARNING = 'No se puede subir la foto en este momento, pero puedes seguir con tu reporte.'
@@ -380,15 +382,44 @@ def rows(request, all_rows=False, page=None):
         archive=request.query_params.get('archive','active')
         if archive not in ('active','archived','all'): raise HTTPException(422,'Filtro de archivo inválido')
         if archive!='all': clauses.append('archived_at IS '+('NULL' if archive=='active' else 'NOT NULL'))
-        for key in ('province','district','township','community','status','need','estado_ayuda'):
+        for key in ('province','district','township','community','status','need','estado_ayuda','damage_type'):
             value = request.query_params.get(key,'').strip()
             if not value: continue
             if key in ('status','estado_ayuda'):
                 if key == 'estado_ayuda' and value not in HELP_STATES: raise HTTPException(422,'Estado de ayuda inválido')
+                if key == 'status' and value not in ('pendiente','contactado','visitado'): raise HTTPException(422,'Estado operativo inválido')
                 clauses.append(key+'=%s')
-            elif key == 'need': clauses.append("data->'needs' ? %s")
+            elif key == 'need':
+                if value == UNSPECIFIED:
+                    clauses.append("CASE WHEN jsonb_typeof(data->'needs')='array' THEN data->'needs'='[]'::jsonb OR EXISTS (SELECT 1 FROM jsonb_array_elements(data->'needs') AS item(value) WHERE coalesce(item.value #>> '{}','') <> ALL(%s::text[])) ELSE true END")
+                    values.append(NEEDS)
+                    continue
+                clauses.append("data->'needs' ? %s")
+            elif key in ('province','district','township','community','damage_type') and value == UNSPECIFIED:
+                clauses.append("coalesce(nullif(btrim(data->>%s),''),'No especificada')=%s"); values.append(key)
             else: clauses.append('data->>%s = %s'); values.append(key)
             values.append(value)
+        period = {}
+        for key in ('date_from','date_to'):
+            value = request.query_params.get(key,'').strip()
+            if not value: continue
+            try:
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',value): raise ValueError
+                period[key] = date.fromisoformat(value)
+            except ValueError: raise HTTPException(422,'Período inválido; use fechas AAAA-MM-DD')
+        if period.get('date_from') and period.get('date_to') and period['date_from'] > period['date_to']:
+            raise HTTPException(422,'La fecha inicial no puede ser posterior a la final')
+        if 'date_from' in period:
+            clauses.append('created_at >= %s'); values.append(datetime.combine(period['date_from'],datetime_time.min,PANAMA))
+        if 'date_to' in period:
+            if period['date_to'] == date.max: raise HTTPException(422,'Fecha final fuera de rango')
+            clauses.append('created_at < %s'); values.append(datetime.combine(period['date_to']+timedelta(days=1),datetime_time.min,PANAMA))
+        group = request.query_params.get('tracking','').strip()
+        attended = "(estado_ayuda IN ('parcial','completa') AND ayuda_actualizada_at IS NOT NULL)"
+        if group:
+            if group not in ('pending','followup','attended'): raise HTTPException(422,'Filtro de seguimiento inválido')
+            clauses.append(attended if group == 'attended' else
+                           'NOT '+attended+(' AND status=\'pendiente\'' if group == 'pending' else " AND status IN ('contactado','visitado')"))
     sql = 'SELECT * FROM reports'+(' WHERE '+' AND '.join(clauses) if clauses else '')+" ORDER BY data->>'province',data->>'district',data->>'township',created_at,id"
     with db() as c:
         if page is None: return c.execute(sql,values).fetchall()
@@ -398,6 +429,11 @@ def rows(request, all_rows=False, page=None):
 def reports(request: Request, token=Depends(admin)):
     try: page=max(1,int(request.query_params.get('page','1')))
     except ValueError: raise HTTPException(422,'Página inválida')
+    if request.query_params.get('include_statistics') == 'true':
+        # One read supplies the list and all totals: no count joins or page-only statistics.
+        records=rows(request)
+        return {'total':len(records),'reports':records[(page-1)*20:page*20],
+                'statistics':statistics(records),'statistics_at':datetime.now(PANAMA)}
     return rows(request,page=page)
 @app.patch('/api/admin/reports/{report_id}')
 async def status(report_id: str, request: Request, token=Depends(admin)):
@@ -468,36 +504,8 @@ def photo(report_id: str, filename: str, token=Depends(admin)):
     if not path.is_file(): raise HTTPException(404,'Foto no disponible')
     return FileResponse(path,media_type='image/jpeg')
 
-def workbook(records, filters, anonymous=False):
-    wb=Workbook(); sheet=wb.active; sheet.title='Reportes'
-    columns=['ID de reporte','Fecha','Provincia','Distrito','Corregimiento','Comunidad','Daños','Necesidades','Detalle de necesidades','Estado'] if anonymous else ['ID de reporte','Fecha','Nombre del responsable / nombre original','Teléfono','Provincia','Distrito','Corregimiento','Comunidad','Google Maps','Tipo de daño','Descripción de daños','Necesidades','Detalle de necesidades','Estado']
-    columns += ['Nombre de familia','Total de personas afectadas',*COUNT_FIELDS.values()]
-    if not anonymous: columns += ['Reporte realizado por'] 
-    if not anonymous: columns += ['Latitud','Longitud','Archivado']
-    columns += ['Estado de ayuda','Fecha del último seguimiento']
-    if not anonymous: columns.append('Observación de seguimiento')
-    sheet.append(columns)
-    for r in records:
-        d=r['data']; base=[r['id'],r['created_at'].isoformat()]
-        values = base+[d['province'],d['district'],d['township'],'','',', '.join(d['needs']),'',r['status']] if anonymous else base+[d['name'],d['phone'],d['province'],d['district'],d['township'],d['community'],d['maps'],d['damage_type'],d['damage'],', '.join(d['needs']),d['needs_detail'],r['status']]
-        values += ['' if anonymous else d.get('family_name',''),d.get('total_people'),*[d.get(k) for k in COUNT_FIELDS]]
-        if not anonymous: values += [d.get('reporter_name') or d.get('name','')]
-        if not anonymous:
-            point=d.get('coordinates') or {}
-            values += [point.get('latitude'),point.get('longitude'),'Sí' if r.get('archived_at') else 'No']
-        updated=r.get('ayuda_actualizada_at')
-        values += [HELP_STATES[r.get('estado_ayuda','pendiente_confirmar')],updated.isoformat() if updated else '']
-        if not anonymous: values.append(r.get('ayuda_observacion',''))
-        sheet.append(values)
-        for cell in sheet[sheet.max_row]:
-            if isinstance(cell.value,str): cell.data_type='s'
-    sheet.freeze_panes='A2'; sheet.auto_filter.ref=sheet.dimensions
-    for column in sheet.columns: sheet.column_dimensions[column[0].column_letter].width=24
-    meta=wb.create_sheet('Información'); meta.append(['Clasificación','Compartible anonimizado' if anonymous else 'CONFIDENCIAL — solo personal autorizado']); meta.append(['Fecha de corte',time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())]); meta.append(['Total de registros',len(records)]); meta.append(['Filtros',filters]); meta.append(['Aviso',NOTICE])
-    for row in meta:
-        for cell in row:
-            if isinstance(cell.value,str): cell.data_type='s'
-    out=io.BytesIO(); wb.save(out); return out.getvalue()
+def workbook(records, filters, anonymous=False, include_personal=True):
+    return statistical_workbook(records,filters,HELP_STATES,anonymous,include_personal)
 @app.get('/api/admin/export/{kind}')
 def export(kind: str, request: Request, token=Depends(admin)):
     if kind not in ('master','area','anonymous','summary','erasures'): raise HTTPException(404)
@@ -517,6 +525,8 @@ def export(kind: str, request: Request, token=Depends(admin)):
             if y<60: pdf.showPage(); y=790
             pdf.drawString(40,y,f'{province} / {state}: {count}'); y-=20
         pdf.save(); return Response(out.getvalue(),media_type='application/pdf',headers={'Content-Disposition':'attachment; filename="REPORTAPA_RESUMEN.pdf"'})
-    scope='MASTER' if kind=='master' else re.sub(r'[^\w-]','_', '_'.join(request.query_params.get(k,'') for k in ('province','district','township'))).strip('_') or kind.upper()
+    scope='MASTER' if kind=='master' else re.sub(r'[^A-Za-z0-9_-]','_', '_'.join(request.query_params.get(k,'') for k in ('province','district','township','community'))).strip('_') or kind.upper()
     filename=f'REPORTAPA_{scope[:100]}_{time.strftime("%Y-%m-%d")}.xlsx'
-    return Response(workbook(records,filters,kind=='anonymous'),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
+    personal=request.query_params.get('include_personal','false')
+    if personal not in ('true','false'): raise HTTPException(422,'Opción de datos personales inválida')
+    return Response(workbook(records,filters,kind=='anonymous',personal=='true'),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="{filename}"'})

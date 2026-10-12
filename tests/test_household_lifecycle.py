@@ -35,12 +35,12 @@ def test_coordinates_only_when_explicit():
 def test_household_exports_and_pdf(data,tmp_path):
     d=m.validate({**data,'age_0_5':1,'age_6_17':0,'age_18_59':2,'age_60_plus':1,'people_disability':1,'maps':'https://www.google.com/maps?q=8.1,-80.9'})
     r=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=d,status='pendiente',photos=[])
-    wb=load_workbook(io.BytesIO(m.workbook([r],'todos')));values=list(wb['Reportes'].values);row=dict(zip(*values))
+    wb=load_workbook(io.BytesIO(m.workbook([r],'todos')));values=list(wb['Detalle de reportes'].values);row=dict(zip(*values))
     assert row['Nombre de familia']=='Familia Prueba' and row['Total de personas afectadas']==4
     assert row['0 a 5 años']==1 and row['Personas con discapacidad']==1 and row['Latitud']==8.1
-    anon=load_workbook(io.BytesIO(m.workbook([r],'todos',True)));anonymous=str(list(anon['Reportes'].values))
+    anon=load_workbook(io.BytesIO(m.workbook([r],'todos',True)));anonymous=str(list(anon['Detalle de reportes'].values))
     for secret in ['Familia Prueba','Responsable Prueba','61234567']:assert secret not in anonymous
-    anonymous_rows=list(anon['Reportes'].values)
+    anonymous_rows=list(anon['Detalle de reportes'].values)
     assert 'Latitud' not in anonymous_rows[0] and 'Longitud' not in anonymous_rows[0]
     assert not any(value in (8.1,-80.9) for value in anonymous_rows[1])
     text=PdfReader(io.BytesIO(m.individual_pdf(r,tmp_path,m.HELP_STATES))).pages[0].extract_text()
@@ -80,8 +80,8 @@ def test_archive_and_permanent_delete(live,data):
     assert archived['data']==report['data'] and archived['photos']==report['photos'] and path.exists()
     assert live.get(url+'/pdf').status_code==200
     assert live.get(url+'/photos/'+path.name).status_code==200
-    master=load_workbook(io.BytesIO(live.get('/api/admin/export/master').content));assert master['Reportes'].max_row==2
-    area=load_workbook(io.BytesIO(live.get('/api/admin/export/area?archive=archived').content));assert area['Reportes'].max_row==2
+    master=load_workbook(io.BytesIO(live.get('/api/admin/export/master').content));assert master['Detalle de reportes'].max_row==2
+    area=load_workbook(io.BytesIO(live.get('/api/admin/export/area?archive=archived').content));assert area['Detalle de reportes'].max_row==2
     assert live.patch(url,json={'archived':False},headers=csrf).status_code==200
     assert live.get('/api/admin/reports').json()['total']==1
     assert live.request('DELETE',url,json={'confirm':'ELIMINAR '+identifier}).status_code==403
@@ -160,7 +160,7 @@ def test_pdf_hides_only_empty_age_groups_without_mutating_data(data,tmp_path):
     assert '0 a 5 años' not in text and '60 años o más' not in text
     assert json.dumps(d,sort_keys=True)==before and d['age_0_5']==d['age_60_plus']==0
     # Spreadsheet retains zero fields and the unchanged calculation/validation contract.
-    rows=list(load_workbook(io.BytesIO(m.workbook([report],'todos')))['Reportes'].values)
+    rows=list(load_workbook(io.BytesIO(m.workbook([report],'todos')))['Detalle de reportes'].values)
     row=dict(zip(*rows));assert row['0 a 5 años']==row['60 años o más']==0
     assert row['Total de personas afectadas']==3
     d['age_0_5']=None;d['age_60_plus']=None
