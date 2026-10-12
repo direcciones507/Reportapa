@@ -14,7 +14,8 @@ def record(identifier, family='Familia A', phone='61234567', status='pendiente',
     return dict(id=identifier, created_at=datetime(2026,10,11,12,tzinfo=timezone.utc), status=status,
         estado_ayuda=help_state, ayuda_actualizada_at=datetime(2026,10,12,tzinfo=timezone.utc) if confirmed else None,
         data=dict(name='Contacto privado', family_name=family, phone=phone, province='Veraguas', district='Santiago',
-                  township='Santiago', community=community, damage_type='Paredes', needs=needs or []))
+                  township='Santiago', community=community, maps='', damage_type='Paredes',
+                  damage='Daño sintético de prueba', needs_detail='', needs=needs or []))
 
 def test_distinct_units_states_and_explicit_needs():
     first=record('RPA-00000001',needs=['Agua potable','Pañales para bebés','Pañales para adultos'])
