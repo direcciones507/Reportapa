@@ -4,7 +4,7 @@ on:
   push:
     branches: [fix/reportapa-capacity-20261011, feat/reportapa-statistics-20261012, feat/entregas-real-20261013]
   pull_request:
-    branches: [main]
+    branches: [main, feat/reportapa-mvp-20261010]
 concurrency:
   group: reportapa-tests-${{ github.ref }}
   cancel-in-progress: true
