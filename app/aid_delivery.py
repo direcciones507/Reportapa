@@ -127,7 +127,7 @@ def install(app, db, admin, limit, signing, json_payload):
             raise HTTPException(422, 'Solicitud inválida')
         name = field(payload, 'full_name', 180)
         login_name = ' '.join(name.casefold().split())
-        code = secrets.token_urlsafe(24)
+        code = f'{secrets.randbelow(1000000):06d}'
         try:
             with db() as c:
                 record = c.execute("""INSERT INTO aid_workers(id,full_name,login_name,secret_hash)
@@ -138,6 +138,18 @@ def install(app, db, admin, limit, signing, json_payload):
                 raise HTTPException(409, 'Responsable ya registrado')
             raise
         return {'id': str(record['id']), 'full_name': name, 'code': code}
+
+    @app.post('/api/admin/aid/workers/{worker_id}/reset-code')
+    def reset_worker_code(worker_id: uuid.UUID, token=Depends(admin)):
+        code = f'{secrets.randbelow(1000000):06d}'
+        with db() as c:
+            record = c.execute("""UPDATE aid_workers SET secret_hash=%s
+                WHERE id=%s AND active=true RETURNING full_name""",
+                (code_hash(code), worker_id)).fetchone()
+            if not record:
+                raise HTTPException(404, 'Responsable no encontrado o inactivo')
+            c.execute('DELETE FROM aid_worker_sessions WHERE worker_id=%s', (worker_id,))
+        return {'full_name': record['full_name'], 'code': code}
 
     @app.post('/api/admin/aid/workers/{worker_id}/revoke')
     def revoke_worker(worker_id: uuid.UUID, token=Depends(admin)):
