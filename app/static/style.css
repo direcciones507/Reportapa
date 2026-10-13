@@ -17,3 +17,19 @@ button.danger{background:#9b2424}
 /* Public landing: centered, equal-width choice buttons */
 body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav{display:flex;flex-direction:column;align-items:center;gap:12px}
 body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav .button{display:flex;align-items:center;justify-content:center;width:min(100%,320px);min-height:54px;margin:0;text-align:center}
+
+/* ReportaPA admin dashboard hierarchy */
+.admin-reports main{max-width:1100px}
+.admin-reports #panel{padding:24px}
+.admin-reports .admin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid #dce6eb;font-weight:700}
+.admin-reports .admin-toolbar #logout{background:#365468;margin:0}
+.admin-reports #aid-admin{background:#f8fbfc;border:1px solid #dce6eb}
+.admin-reports #aid-admin>h2{margin-top:0}
+.admin-reports .admin-action-grid button{display:flex;justify-content:center;align-items:center;padding:14px 12px}
+.admin-reports #aid-create-worker{max-width:640px;margin:0 auto 18px}
+.admin-reports #aid-issued-code:not(:empty){background:#fff4d9;padding:14px;border-radius:10px;overflow-wrap:anywhere}
+.admin-reports .aid-deliveries-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #dce6eb;padding-top:18px;margin-top:18px}
+.admin-reports .aid-deliveries-heading h3{margin:0}
+.admin-reports #aid-deliveries{background:white;border-radius:12px;padding:8px 16px;margin-top:12px}
+.admin-reports #aid-deliveries article{margin:0}
+@media(max-width:600px){.admin-reports #panel{padding:16px}.admin-reports .admin-toolbar{align-items:flex-start}.admin-reports .aid-deliveries-heading{align-items:stretch;flex-direction:column}.admin-reports .aid-deliveries-heading button{width:100%;margin:0}}
