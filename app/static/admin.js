@@ -113,5 +113,14 @@ document.querySelector('#aid-create-worker').addEventListener('submit',async eve
   await loadAid();
  }catch(e){message.textContent=e.message;}
 });
+document.querySelector('#aid-show-create').onclick=()=>{
+ const form=document.querySelector('#aid-create-worker'),button=document.querySelector('#aid-show-create');
+ form.hidden=!form.hidden;button.setAttribute('aria-expanded',String(!form.hidden));
+};
+document.querySelector('#aid-show-workers').onclick=async()=>{
+ const list=document.querySelector('#aid-worker-list'),button=document.querySelector('#aid-show-workers');
+ list.hidden=!list.hidden;button.setAttribute('aria-expanded',String(!list.hidden));
+ if(!list.hidden)await loadAid().catch(e=>message.textContent=e.message);
+};
 document.querySelector('#aid-refresh').onclick=()=>loadAid().catch(e=>message.textContent=e.message);
 }
