@@ -13,3 +13,7 @@ button.danger{background:#9b2424}
 .admin-reports #aid-worker-list{padding:16px;border:1px solid #dce6eb;border-radius:12px;margin-bottom:18px}
 .admin-reports #aid-worker-list p{line-height:1.7}
 @media(max-width:600px){.admin-reports .admin-action-grid{grid-template-columns:1fr}}
+
+/* Public landing: centered, equal-width choice buttons */
+body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav{display:flex;flex-direction:column;align-items:center;gap:12px}
+body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav .button{display:flex;align-items:center;justify-content:center;width:min(100%,320px);min-height:54px;margin:0;text-align:center}
