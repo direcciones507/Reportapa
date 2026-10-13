@@ -1,1 +1,1 @@
-pytest_plugins = ['test_app']
+from test_app import live
