@@ -219,6 +219,8 @@ def social_preview_image():
 
 @app.get('/')
 def home(): return FileResponse(ROOT/'static/index.html')
+@app.get('/entrega-ayuda')
+def aid_page(): return FileResponse(ROOT/'static/aid.html')
 @app.get('/admin')
 def panel(): return FileResponse(ROOT/'static/admin.html')
 @app.get('/health')
