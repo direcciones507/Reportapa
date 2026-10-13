@@ -2,9 +2,9 @@ name: ReportaPA tests
 on:
   workflow_dispatch:
   push:
-    branches: [fix/reportapa-capacity-20261011, feat/reportapa-statistics-20261012]
+    branches: [fix/reportapa-capacity-20261011, feat/reportapa-statistics-20261012, feat/entregas-real-20261013]
   pull_request:
-    branches: [main]
+    branches: [main, feat/reportapa-mvp-20261010]
 concurrency:
   group: reportapa-tests-${{ github.ref }}
   cancel-in-progress: true
@@ -35,7 +35,7 @@ jobs:
       - run: pip install -r requirements.txt pytest httpx psutil pypdf==5.9.0
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: python -m pytest -q
-      - run: node --check app/static/citizen.js && node --check app/static/admin.js
+      - run: node --check app/static/citizen.js && node --check app/static/admin.js && node --check app/static/aid.js
       - run: node --test tests/test_*.js
       - run: docker build --tag reportapa-ci .
       - run: python scripts/load_capacity.py

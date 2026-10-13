@@ -34,7 +34,7 @@ function renderStatistics(stats,at){
 async function load(){const sequence=++loadSequence;const output=document.querySelector('#statistics');output.replaceChildren();text('p','Consultando estadísticas de los filtros seleccionados…',output);try{const q=query();document.querySelectorAll('.export').forEach(a=>a.href='/api/admin/export/'+a.dataset.kind+'?'+q);q.set('page',page);q.set('include_statistics','true');const d=await api('/api/admin/reports?'+q);if(sequence!==loadSequence)return;renderStatistics(d.statistics,d.statistics_at);total=d.total;document.querySelector('#total').textContent=total+' reportes · página '+page;const root=document.querySelector('#reports');root.replaceChildren();d.reports.forEach(r=>{const a=document.createElement('article');root.append(a);text('h2',r.id+' · '+r.data.name,a);renderHousehold(r,a);text('p','Reporte realizado por: '+(r.data.reporter_name||r.data.name),a);text('p',new Date(r.created_at).toLocaleString('es-PA'),a);text('p',[r.data.province,r.data.district,r.data.township,r.data.community].join(' / '),a);text('p','Teléfono: '+r.data.phone,a);text('p',(r.data.damage_type||'No especificada')+' — '+(r.data.damage||''),a);text('p','Necesidades: '+(Array.isArray(r.data.needs)?r.data.needs:[]).filter(n=>typeof n==='string').join(', ')+' '+(r.data.needs_detail||''),a);const link=text('a','Abrir Google Maps',a);link.href=r.data.maps;link.target='_blank';link.rel='noopener noreferrer';r.photos.forEach(p=>{const img=document.createElement('img');img.src='/api/admin/reports/'+r.id+'/photos/'+p;img.alt='Fotografía privada del reporte';img.loading='lazy';a.append(img);});renderHelp(r,a);renderLifecycle(r,a);const l=text('label','Estado operativo del reporte',a),s=document.createElement('select');['pendiente','contactado','visitado'].forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o);});s.value=r.status;l.append(s);s.addEventListener('change',async()=>{try{await api('/api/admin/reports/'+r.id,{method:'PATCH',body:JSON.stringify({status:s.value})});message.textContent='Estado guardado';await load();}catch(e){s.value=r.status;message.textContent=e.message;}});});document.querySelector('#prev').disabled=page===1;document.querySelector('#next').disabled=page*20>=total;}catch(e){if(sequence!==loadSequence)return;output.replaceChildren();text('p','No se pudieron actualizar las estadísticas. Vuelva a aplicar los filtros.',output);message.textContent=e.message;}}
 async function refreshStorage(){const output=document.querySelector('#storage-metrics');try{const d=await api('/api/admin/storage');const gb=n=>(n/1024**3).toFixed(2)+' GiB';output.textContent='Reportes totales: '+d.total_reports+' · '+(d.storage_available?'Fotografías almacenadas: '+d.photographs+' · Volumen utilizado: '+gb(d.used_bytes)+' · Disponible: '+gb(d.available_bytes)+' · Ocupación: '+d.occupation_percent+' %'+(d.alert?' · ALERTA '+d.alert+' %':''):'Almacenamiento de fotografías temporalmente indisponible. Los reportes pueden continuar sin foto.');}catch(e){output.textContent='No se pudieron consultar los indicadores. Vuelva a actualizar.';}}
 document.querySelector('#refresh-storage').onclick=refreshStorage;
-async function opened(token){csrf=token;document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();}
+async function opened(token){csrf=token;document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();await loadAid().catch(e=>message.textContent=e.message);}
 document.querySelector('#login').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});e.target.reset();message.textContent='';await opened(r.csrf);}catch(e){message.textContent=e.message;}});
 document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;load();});
 document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#filters').reset();page=1;load();};
@@ -74,4 +74,44 @@ function renderLifecycle(r,parent){
   const label=text('label','Escriba ELIMINAR '+r.id+' para confirmar',details),confirm=document.createElement('input');confirm.autocomplete='off';label.append(confirm);
   const remove=text('button','Eliminar definitivamente',details);remove.type='button';remove.className='danger';
   remove.onclick=async()=>{if(confirm.value!=='ELIMINAR '+r.id){message.textContent='La confirmación no coincide con el número de reporte';return;}remove.disabled=true;try{const result=await api('/api/admin/reports/'+r.id,{method:'DELETE',body:JSON.stringify({confirm:confirm.value})});await load();message.textContent=result.message;}catch(e){message.textContent=e.message;}finally{remove.disabled=false;}};
+}
+
+async function loadAid(){
+ const workers=await api('/api/admin/aid/workers');
+ const workerRoot=document.querySelector('#aid-workers');workerRoot.replaceChildren();
+ workers.workers.forEach(w=>{
+  const row=document.createElement('p');workerRoot.append(row);
+  text('span',w.full_name+' · '+(w.active?'Activo':'Revocado')+' ',row);
+  if(w.active){
+   const button=text('button','Revocar acceso',row);button.type='button';
+   button.onclick=async()=>{
+    if(!confirm('¿Revocar acceso de '+w.full_name+'?'))return;
+    button.disabled=true;
+    try{await api('/api/admin/aid/workers/'+encodeURIComponent(w.id)+'/revoke',{method:'POST'});await loadAid();}
+    catch(e){message.textContent=e.message;button.disabled=false;}
+   };
+  }
+ });
+ const deliveries=await api('/api/admin/aid/deliveries');
+ const root=document.querySelector('#aid-deliveries');root.replaceChildren();
+ text('p',deliveries.deliveries.length+' entregas recientes',root);
+ deliveries.deliveries.forEach(d=>{
+  const row=document.createElement('article');root.append(row);
+  text('h3',d.beneficiary_name+' · '+d.beneficiary_id,row);
+  text('p',d.place+' · '+d.aid_type,row);
+  text('p','Responsable: '+d.worker_name+' · '+new Date(d.created_at).toLocaleString('es-PA',{timeZone:'America/Panama'}),row);
+ });
+}
+if (typeof document.querySelector === 'function') {
+document.querySelector('#aid-create-worker').addEventListener('submit',async event=>{
+ event.preventDefault();
+ try{
+  const data=Object.fromEntries(new FormData(event.target));
+  const result=await api('/api/admin/aid/workers',{method:'POST',body:JSON.stringify(data)});
+  event.target.reset();
+  document.querySelector('#aid-issued-code').textContent='Código personal de '+result.full_name+': '+result.code+' (copiar ahora; no se volverá a mostrar)';
+  await loadAid();
+ }catch(e){message.textContent=e.message;}
+});
+document.querySelector('#aid-refresh').onclick=()=>loadAid().catch(e=>message.textContent=e.message);
 }
