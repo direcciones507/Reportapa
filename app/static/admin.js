@@ -102,6 +102,7 @@ async function loadAid(){
   text('p','Responsable: '+d.worker_name+' · '+new Date(d.created_at).toLocaleString('es-PA',{timeZone:'America/Panama'}),row);
  });
 }
+if (typeof document.querySelector === 'function') {
 document.querySelector('#aid-create-worker').addEventListener('submit',async event=>{
  event.preventDefault();
  try{
@@ -113,3 +114,4 @@ document.querySelector('#aid-create-worker').addEventListener('submit',async eve
  }catch(e){message.textContent=e.message;}
 });
 document.querySelector('#aid-refresh').onclick=()=>loadAid().catch(e=>message.textContent=e.message);
+}
