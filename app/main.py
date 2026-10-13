@@ -208,7 +208,7 @@ def clean_photo(content):
 @app.get('/og-image.png')
 def social_preview_image():
     # Serve a predictable social-card size without changing the uploaded original.
-    with Image.open(ROOT/'static/og-reportapa.png') as original:
+    with Image.open(ROOT/'static/og-image.png') as original:
         artwork = ImageOps.exif_transpose(original).convert('RGBA')
         artwork.thumbnail((1200, 630), Image.Resampling.LANCZOS)
         card = Image.new('RGBA', (1200, 630), (255, 255, 255, 255))
