@@ -28,7 +28,7 @@ def test_aid_flow(live):
                         json={'full_name': name}, headers=csrf)
     assert created.status_code == 200, created.text
     worker_id, code = created.json()['id'], created.json()['code']
-    assert code
+    assert len(code) == 6 and code.isdecimal()
     assert live.post('/api/aid/login',
                      json={'full_name': name, 'code': 'incorrecto'}).status_code == 401
     login = live.post('/api/aid/login', json={'full_name': name, 'code': code})
