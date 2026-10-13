@@ -83,6 +83,15 @@ async function loadAid(){
   const row=document.createElement('p');workerRoot.append(row);
   text('span',w.full_name+' · '+(w.active?'Activo':'Revocado')+' ',row);
   if(w.active){
+   const reset=text('button','Restablecer código',row);reset.type='button';
+   reset.onclick=async()=>{
+    if(!confirm('¿Generar un nuevo código de seis números para '+w.full_name+'? El anterior dejará de funcionar.'))return;
+    reset.disabled=true;
+    try{
+     const result=await api('/api/admin/aid/workers/'+encodeURIComponent(w.id)+'/reset-code',{method:'POST'});
+     document.querySelector('#aid-issued-code').textContent='Nuevo código de '+result.full_name+': '+result.code+' (guárdelo ahora; no se volverá a mostrar)';
+    }catch(e){message.textContent=e.message;}finally{reset.disabled=false;}
+   };
    const button=text('button','Revocar acceso',row);button.type='button';
    button.onclick=async()=>{
     if(!confirm('¿Revocar acceso de '+w.full_name+'?'))return;
