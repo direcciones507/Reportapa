@@ -530,3 +530,8 @@ def export(kind: str, request: Request, token=Depends(admin)):
     personal=request.query_params.get('include_personal','false')
     if personal not in ('true','false'): raise HTTPException(422,'Opción de datos personales inválida')
     return Response(workbook(records,filters,kind=='anonymous',personal=='true'),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
+
+
+# Register isolated aid-delivery endpoints after existing dependencies are defined.
+from .aid_delivery import install as install_aid_delivery
+install_aid_delivery(app, db, admin, limit, signing, json_payload)
