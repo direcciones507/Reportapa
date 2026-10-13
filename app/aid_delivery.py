@@ -73,8 +73,8 @@ def install(app, db, admin, limit, signing, json_payload):
         return response
 
     @app.get('/api/aid/session')
-    def aid_session(person=Depends(worker)):
-        return {'full_name': person['full_name']}
+    def aid_session(request: Request, person=Depends(worker)):
+        return {'full_name': person['full_name'], 'csrf': signing(request.cookies.get('rpa_aid_session', ''))}
 
     @app.post('/api/aid/logout')
     def aid_logout(request: Request, person=Depends(worker)):
