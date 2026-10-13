@@ -1,4 +1,23 @@
 let csrf='',page=1,total=0,loadSequence=0;const message=document.querySelector('#message');
+const ADMIN_IDLE_MS=15*60*1000;
+let lastAdminActivity=Date.now(),adminIdleTimer=null;
+function endAdminSession(){
+ if(document.querySelector('#panel').hidden)return;
+ document.querySelector('#panel').hidden=true;
+ document.querySelector('#login').hidden=false;
+ csrf='';
+ message.textContent='La sesión se cerró por inactividad. Inicie sesión nuevamente.';
+ fetch('/api/admin/logout',{method:'POST',headers:{'X-CSRF-Token':window.__adminIdleCsrf||''}}).catch(()=>{});
+}
+function checkAdminIdle(){
+ if(!document.querySelector('#panel').hidden&&Date.now()-lastAdminActivity>=ADMIN_IDLE_MS)endAdminSession();
+}
+['pointerdown','keydown','touchstart','scroll'].forEach(eventName=>document.addEventListener(eventName,()=>{
+ if(!document.querySelector('#panel').hidden)lastAdminActivity=Date.now();
+},{passive:true}));
+document.addEventListener('visibilitychange',checkAdminIdle);
+window.addEventListener('focus',checkAdminIdle);
+adminIdleTimer=setInterval(checkAdminIdle,10000);
 function query(){return new URLSearchParams([...new FormData(document.querySelector('#filters'))].filter(([,v])=>v));}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,...options.headers}});const d=await r.json();if(!r.ok){if(r.status===401){document.querySelector('#panel').hidden=true;document.querySelector('#login').hidden=false;}throw Error(typeof d.detail==='string'?d.detail:'Solicitud inválida');}return d;}
 function text(tag,value,parent){const el=document.createElement(tag);el.textContent=value;parent.append(el);return el;}
@@ -34,7 +53,7 @@ function renderStatistics(stats,at){
 async function load(){const sequence=++loadSequence;const output=document.querySelector('#statistics');output.replaceChildren();text('p','Consultando estadísticas de los filtros seleccionados…',output);try{const q=query();document.querySelectorAll('.export').forEach(a=>a.href='/api/admin/export/'+a.dataset.kind+'?'+q);q.set('page',page);q.set('include_statistics','true');const d=await api('/api/admin/reports?'+q);if(sequence!==loadSequence)return;renderStatistics(d.statistics,d.statistics_at);total=d.total;document.querySelector('#total').textContent=total+' reportes · página '+page;const root=document.querySelector('#reports');root.replaceChildren();d.reports.forEach(r=>{const a=document.createElement('article');root.append(a);text('h2',r.id+' · '+r.data.name,a);renderHousehold(r,a);text('p','Reporte realizado por: '+(r.data.reporter_name||r.data.name),a);text('p',new Date(r.created_at).toLocaleString('es-PA'),a);text('p',[r.data.province,r.data.district,r.data.township,r.data.community].join(' / '),a);text('p','Teléfono: '+r.data.phone,a);text('p',(r.data.damage_type||'No especificada')+' — '+(r.data.damage||''),a);text('p','Necesidades: '+(Array.isArray(r.data.needs)?r.data.needs:[]).filter(n=>typeof n==='string').join(', ')+' '+(r.data.needs_detail||''),a);const link=text('a','Abrir Google Maps',a);link.href=r.data.maps;link.target='_blank';link.rel='noopener noreferrer';r.photos.forEach(p=>{const img=document.createElement('img');img.src='/api/admin/reports/'+r.id+'/photos/'+p;img.alt='Fotografía privada del reporte';img.loading='lazy';a.append(img);});renderHelp(r,a);renderLifecycle(r,a);const l=text('label','Estado operativo del reporte',a),s=document.createElement('select');['pendiente','contactado','visitado'].forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o);});s.value=r.status;l.append(s);s.addEventListener('change',async()=>{try{await api('/api/admin/reports/'+r.id,{method:'PATCH',body:JSON.stringify({status:s.value})});message.textContent='Estado guardado';await load();}catch(e){s.value=r.status;message.textContent=e.message;}});});document.querySelector('#prev').disabled=page===1;document.querySelector('#next').disabled=page*20>=total;}catch(e){if(sequence!==loadSequence)return;output.replaceChildren();text('p','No se pudieron actualizar las estadísticas. Vuelva a aplicar los filtros.',output);message.textContent=e.message;}}
 async function refreshStorage(){const output=document.querySelector('#storage-metrics');try{const d=await api('/api/admin/storage');const gb=n=>(n/1024**3).toFixed(2)+' GiB';output.textContent='Reportes totales: '+d.total_reports+' · '+(d.storage_available?'Fotografías almacenadas: '+d.photographs+' · Volumen utilizado: '+gb(d.used_bytes)+' · Disponible: '+gb(d.available_bytes)+' · Ocupación: '+d.occupation_percent+' %'+(d.alert?' · ALERTA '+d.alert+' %':''):'Almacenamiento de fotografías temporalmente indisponible. Los reportes pueden continuar sin foto.');}catch(e){output.textContent='No se pudieron consultar los indicadores. Vuelva a actualizar.';}}
 document.querySelector('#refresh-storage').onclick=refreshStorage;
-async function opened(token){csrf=token;document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();await loadAid().catch(e=>message.textContent=e.message);}
+async function opened(token){csrf=token;window.__adminIdleCsrf=token;lastAdminActivity=Date.now();document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();await loadAid().catch(e=>message.textContent=e.message);}
 document.querySelector('#login').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});e.target.reset();message.textContent='';await opened(r.csrf);}catch(e){message.textContent=e.message;}});
 document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;load();});
 document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#filters').reset();page=1;load();};
