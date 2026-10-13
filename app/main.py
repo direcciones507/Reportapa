@@ -151,6 +151,8 @@ def admin(request: Request):
         raise HTTPException(401,'Sesión requerida')
     if request.method != 'GET' and not hmac.compare_digest(request.headers.get('x-csrf-token','').encode(), signing(token).encode()):
         raise HTTPException(403,'Solicitud inválida')
+    with db() as c:
+        c.execute("UPDATE admin_sessions SET expires_at=LEAST(to_timestamp(%s),now()+interval '15 minutes') WHERE token_hash=%s AND expires_at>now()", (int(expiry), hashlib.sha256(token.encode()).hexdigest()))
     return token
 
 def limit(request, action, maximum, identity=None):
@@ -248,7 +250,7 @@ async def login(request: Request):
     with db() as c:
         c.execute('DELETE FROM admin_sessions WHERE expires_at<=now()')
         c.execute('INSERT INTO admin_sessions(token_hash,username,expires_at,credential_hash) VALUES (%s,%s,to_timestamp(%s),%s)',
-                  (hashlib.sha256(token.encode()).hexdigest(),ADMIN_USERNAME,expiry,signing(os.environ['ADMIN_PASSWORD'])))
+                  (hashlib.sha256(token.encode()).hexdigest(),ADMIN_USERNAME,min(expiry,int(time.time()+900)),signing(os.environ['ADMIN_PASSWORD'])))
     response = JSONResponse({'csrf':signing(token)})
     response.set_cookie('rpa_session',token,httponly=True,secure=os.getenv('COOKIE_SECURE','true') == 'true',samesite='strict',max_age=3600,path='/'); return response
 @app.get('/api/admin/session')
