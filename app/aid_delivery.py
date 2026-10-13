@@ -127,7 +127,7 @@ def install(app, db, admin, limit, signing, json_payload):
             raise HTTPException(422, 'Solicitud inválida')
         name = field(payload, 'full_name', 180)
         login_name = ' '.join(name.casefold().split())
-        code = secrets.token_urlsafe(24)
+        code = f'{secrets.randbelow(1000000):06d}'
         try:
             with db() as c:
                 record = c.execute("""INSERT INTO aid_workers(id,full_name,login_name,secret_hash)
