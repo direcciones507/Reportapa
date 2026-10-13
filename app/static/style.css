@@ -5,3 +5,11 @@
 button.danger{background:#9b2424}
 
 .admin-reports .report-stats .stat-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.admin-reports .stat-totals div{background:#f2f6f8;padding:16px;border-radius:10px}.admin-reports .stat-totals dt{font-size:14px}.admin-reports .stat-totals dd{font-size:24px;font-weight:700;margin:8px 0 0}.admin-reports .stat-scroll{overflow-x:auto;max-width:100%}.admin-reports .report-stats table{border-collapse:collapse;width:100%;font-size:14px}.admin-reports .report-stats th,.admin-reports .report-stats td{padding:10px;border-bottom:1px solid #dce6eb;vertical-align:top;text-align:left;min-width:110px}.admin-reports .report-stats th{background:#123f58;color:white}.admin-reports .report-stats button{white-space:nowrap}
+
+/* Desktop-first administrative action layout */
+.admin-reports #panel{max-width:100%;}
+.admin-reports .admin-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0 20px}
+.admin-reports .admin-action-grid button{width:100%;min-height:54px;margin:0;text-align:center;font-weight:650}
+.admin-reports #aid-worker-list{padding:16px;border:1px solid #dce6eb;border-radius:12px;margin-bottom:18px}
+.admin-reports #aid-worker-list p{line-height:1.7}
+@media(max-width:600px){.admin-reports .admin-action-grid{grid-template-columns:1fr}}
