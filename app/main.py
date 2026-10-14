@@ -9,6 +9,7 @@ import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse, Response, JSONResponse
+from starlette.datastructures import FormData
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from reportlab.pdfgen import canvas
@@ -259,6 +260,37 @@ def session(token=Depends(admin)): return {'csrf':signing(token),'username':ADMI
 def logout(token=Depends(admin)):
     with db() as c: c.execute('DELETE FROM admin_sessions WHERE token_hash=%s',(hashlib.sha256(token.encode()).hexdigest(),))
     r = JSONResponse({'ok':True}); r.delete_cookie('rpa_session',path='/'); return r
+
+@app.post('/api/integrations/reports')
+async def submit_integrated_report(request: Request):
+    """Opt-in authenticated integration; disabled until a dedicated secret is configured."""
+    secret = os.getenv('REPORTAPA_INTEGRATION_TOKEN', '')
+    if len(secret) < 32:
+        raise HTTPException(503, 'Integración no configurada')
+    supplied = request.headers.get('authorization', '')
+    expected = 'Bearer ' + secret
+    if not hmac.compare_digest(supplied.encode(), expected.encode()):
+        raise HTTPException(401, 'Credenciales de integración inválidas')
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+        raise HTTPException(415, 'Se requiere JSON')
+    raw = await request.json()
+    if not isinstance(raw, dict):
+        raise HTTPException(422, 'Se requiere un objeto JSON')
+    try:
+        key = str(uuid.UUID(str(raw.get('idempotency_key', ''))))
+    except ValueError:
+        raise HTTPException(422, 'Clave de envío inválida')
+    if raw.get('consent') != 'yes':
+        raise HTTPException(422, 'Se requiere consentimiento registrado')
+    data = validate(raw, allow_missing_family=True)
+    fields = [(k, str(v)) for k, v in raw.items() if isinstance(v, (str, int, float)) and k != 'needs']
+    fields.extend(('needs', n) for n in raw.get('needs', []) if isinstance(n, str))
+    form = FormData(fields)
+    try:
+        return await run_in_threadpool(persist_report, request, form, key, data)
+    except (PoolTimeout, TooManyRequests, psycopg.OperationalError, psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
+        raise HTTPException(503, 'Servicio temporalmente ocupado; vuelva a intentar.', headers={'Retry-After':'5'})
+
 
 @app.post('/api/admin/reports/paper')
 async def submit_paper(request: Request, token=Depends(admin)):
