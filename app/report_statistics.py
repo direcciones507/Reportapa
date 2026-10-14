@@ -6,7 +6,7 @@ LOCATION_FIELDS = ('province', 'district', 'township', 'community')
 UNSPECIFIED = 'No especificada'
 TRACKING_LABELS = {'pending': 'Pendientes', 'followup': 'En seguimiento',
                    'attended': 'Con atención registrada', 'unspecified': 'Estado no especificado'}
-FAMILY_METHOD = ('Grupos familiares declarados: nombre de familia, teléfono y sector coincidentes. '
+FAMILY_METHOD = ('Familias reportadas: nombre de familia, teléfono y sector coincidentes. '
                  'No existe un identificador único de familia o vivienda; no representan un censo. '
                  'Los reportes sin nombre de familia o teléfono no se cuentan como familias identificadas.')
 ATTENTION_METHOD = ('Atención registrada requiere ayuda parcial o completa con fecha de confirmación. '
@@ -58,11 +58,14 @@ def recorded_needs(record):
 
 def statistics(records, anonymous=False):
     records = unique_records(records)
-    families = set(); unknown_families = 0
+    families = set(); unknown_families = 0; affected_people = 0
     tracking = Counter(); operational = Counter(); help_states = Counter(); damages = Counter()
     communities = {}; need_reports = Counter(); need_families = defaultdict(set)
     need_unknown = Counter(); need_communities = {}
     for r in records:
+        count = r['data'].get('total_people')
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            affected_people += count
         loc = location(r, anonymous); family = family_key(r); group = tracking_group(r)
         if family is None:
             unknown_families += 1
@@ -106,6 +109,7 @@ def statistics(records, anonymous=False):
               'availability': UNSPECIFIED if n == 'Alojamiento temporal' else 'Categoría registrada'}
              for n in NEED_CATEGORIES]
     return {'reports': len(records), 'family_groups': len(families),
+            'affected_people_reported': affected_people,
             'unidentified_family_reports': unknown_families, 'housing_count': None,
             'tracking': {k: tracking[k] for k in TRACKING_LABELS},
             'operational_states': dict(operational), 'help_states': dict(help_states),
