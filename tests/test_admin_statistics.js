@@ -12,11 +12,12 @@ function view(){
   return {context,elements,root,fields};
 }
 test('statistics renders selected totals safely and drills into the full hierarchy, preserving other filters',()=>{
-  const page=view(),stats={reports:27,family_groups:24,unidentified_family_reports:3,tracking:{pending:20,followup:5,attended:2},family_method:'Declaradas',attention_method:'Atención confirmada',needs_method:'Selección explícita',damages:[{type:'<script>private</script>',reports:1}],needs:[{category:'Alojamiento temporal',family_groups:null,reports:null}],communities:[{location:{province:'Veraguas',district:'Soná',township:'Soná',community:'El Centro'},reports:27,pending:20,followup:5,attended:2,damages:{Paredes:27},needs:{'Agua potable':27}}]};
+  const page=view(),stats={reports:27,family_groups:24,unidentified_family_reports:3,tracking:{pending:20,followup:5,attended:2},family_method:'Declaradas',attention_method:'Atención confirmada',needs_method:'Selección explícita',damages:[{type:'<script>private</script>',reports:1}],needs:[{category:'Alojamiento temporal',family_groups:null,reports:1}],communities:[{location:{province:'Veraguas',district:'Soná',township:'Soná',community:'El Centro'},reports:27,pending:20,followup:5,attended:2,damages:{Paredes:27},needs:{'Agua potable':27}}]};
   page.context.renderStatistics(stats,'2026-10-11T12:00:00Z');
   assert.equal(page.elements.filter(e=>e.tag==='dd')[0].textContent,'27');
   assert.ok(page.elements.some(e=>e.textContent==='<script>private</script>: 1 reportes'));
-  assert.ok(page.elements.some(e=>e.textContent==='Alojamiento temporal: No especificada'));
+  assert.ok(page.elements.some(e=>e.tag==='td'&&e.textContent==='Alojamiento temporal'));
+  assert.ok(page.elements.some(e=>e.tag==='td'&&e.textContent==='No determinados'));
   page.elements.find(e=>e.textContent==='Ver reportes').onclick();
   assert.equal(page.fields.community.value,'El Centro');assert.equal(page.fields.district.value,'Soná');
   assert.equal(page.fields.date_from.value,'2026-10-11');assert.equal(page.fields.need.value,'Agua potable');

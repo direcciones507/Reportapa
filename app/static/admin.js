@@ -179,3 +179,38 @@ document.querySelector('#aid-show-workers').onclick=async()=>{
 };
 document.querySelector('#aid-refresh').onclick=()=>loadAid().catch(e=>message.textContent=e.message);
 }
+
+
+// Paper forms use the same validated report pipeline, with ADMIN session and CSRF.
+const paperForm=typeof document.querySelector==='function'?document.querySelector('#paper-report-form'):null;
+if(paperForm){
+ let paperKey=null;
+ paperForm.addEventListener('input',()=>{paperKey=null;});
+ paperForm.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const result=document.querySelector('#paper-report-result');
+  const button=paperForm.querySelector('button[type="submit"]');
+  if(!paperKey)paperKey=crypto.randomUUID();
+  const data=new FormData(paperForm);
+  data.set('idempotency_key',paperKey);
+  if(!data.get('needs'))data.delete('needs');
+  data.set('reporting_for_self','yes');
+  button.disabled=true;
+  result.textContent='Guardando reporte…';
+  try{
+   const response=await fetch('/api/admin/reports/paper',{method:'POST',headers:{'X-CSRF-Token':csrf},body:data});
+   const payload=await response.json();
+   if(!response.ok){
+    if(response.status===409 && payload.possible_duplicate){
+     result.textContent='Posible duplicado: revise antes de confirmar. No se guardó.';
+     return;
+    }
+    throw Error(typeof payload.detail==='string'?payload.detail:payload.message||'No se pudo guardar');
+   }
+   result.textContent='Reporte guardado. Número oficial: '+payload.id;
+   paperForm.reset();paperKey=null;
+   if(typeof load==='function')await load();
+  }catch(error){result.textContent='No se confirmó el registro: '+error.message;}
+  finally{button.disabled=false;}
+ });
+}

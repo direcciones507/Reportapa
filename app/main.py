@@ -166,7 +166,7 @@ def limit(request, action, maximum, identity=None):
 def prune_limits():
     with db() as c: c.execute("DELETE FROM request_limits WHERE started_at < now()-interval '1 day'")
 
-def validate(raw):
+def validate(raw, allow_missing_family=False):
     data = {k: str(raw.get(k,'')).strip() for k in FIELDS}
     for k in FIELDS:
         if k not in ('needs_detail','damage_type','maps') and not data[k]: raise HTTPException(422,'Complete los campos obligatorios')
@@ -195,7 +195,7 @@ def validate(raw):
     if mode=='no' and not reporter: raise HTTPException(422,'Indique el nombre de quien realiza el reporte')
     data['reporting_for_self']=mode
     data['reporter_name']=reporter if mode=='no' else ''
-    data.update(household(raw));data['coordinates']=coordinates(data['maps'])
+    data.update(household(raw, allow_missing_family=allow_missing_family));data['coordinates']=coordinates(data['maps'])
     return data
 
 def clean_photo(content):
@@ -259,6 +259,25 @@ def session(token=Depends(admin)): return {'csrf':signing(token),'username':ADMI
 def logout(token=Depends(admin)):
     with db() as c: c.execute('DELETE FROM admin_sessions WHERE token_hash=%s',(hashlib.sha256(token.encode()).hexdigest(),))
     r = JSONResponse({'ok':True}); r.delete_cookie('rpa_session',path='/'); return r
+
+@app.post('/api/admin/reports/paper')
+async def submit_paper(request: Request, token=Depends(admin)):
+    """Manual transcription of paper forms, using the existing persistence and deduplication."""
+    form = await request.form(max_files=1, max_fields=40)
+    try:
+        try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
+        except ValueError: raise HTTPException(422,'Clave de envío inválida')
+        raw = dict(form)
+        raw['needs'] = form.getlist('needs')
+        data = validate(raw, allow_missing_family=True)
+        if form.get('consent') != 'yes':
+            raise HTTPException(422,'Debe constar la autorización privada del formulario en papel')
+        return await run_in_threadpool(persist_report,request,form,key,data)
+    except (PoolTimeout, TooManyRequests, psycopg.OperationalError, psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
+        raise HTTPException(503,'Servicio temporalmente ocupado; vuelva a intentar.',headers={'Retry-After':'5'})
+    finally:
+        await form.close()
+
 
 @app.post('/api/reports')
 async def submit(request: Request):
