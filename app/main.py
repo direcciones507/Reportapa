@@ -601,30 +601,32 @@ install_aid_delivery(app, db, admin, limit, signing, json_payload)
 
 @app.post('/mcp')
 async def mcp_transport(request: Request):
-    """Stateless MCP JSON-RPC transport; disabled until OAuth is implemented.
-
-    Do not accept the internal integration token as an MCP credential.
-    External ChatGPT clients must use OAuth access tokens with verified
-    issuer, audience, scopes, expiry and revocation.
-    """
+    """Authenticated MCP JSON-RPC entry point; writes remain disabled."""
     if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
         raise HTTPException(415, 'Se requiere JSON')
     if len(await request.body()) > 32768:
         raise HTTPException(413, 'Solicitud demasiado grande')
-    # The discovery endpoint is available only with a configured issuer.
-    # Until token verification is implemented, reject every bearer credential.
-    # Return a standards-compliant OAuth challenge, never the internal API key.
-    return JSONResponse(
-        {'error': 'MCP OAuth aún no está habilitado'},
-        status_code=401,
-        headers={
-            'Cache-Control': 'no-store',
-            'WWW-Authenticate': (
-                'Bearer realm="ReportaPA", error="invalid_token", '
-                'resource_metadata="https://reportapa.online/.well-known/oauth-protected-resource"'
-            ),
-        },
+    from .mcp_oauth import verify_mcp_access_token
+    from jwt.exceptions import InvalidTokenError, PyJWKClientError
+    supplied = request.headers.get('authorization', '')
+    challenge = (
+        'Bearer realm="ReportaPA", error="invalid_token", '
+        'resource_metadata="https://reportapa.online/.well-known/oauth-protected-resource"'
     )
+    if not supplied.startswith('Bearer '):
+        return JSONResponse({'error': 'Autenticación requerida'}, status_code=401,
+                            headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
+    try:
+        verify_mcp_access_token(supplied[7:])
+    except RuntimeError:
+        raise HTTPException(503, 'Proveedor OAuth no configurado')
+    except (InvalidTokenError, PyJWKClientError, ValueError):
+        return JSONResponse({'error': 'Token inválido'}, status_code=401,
+                            headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
+    # A valid token alone does not authorize writes until the MCP handler is
+    # implemented and its end-to-end idempotency tests have passed.
+    return JSONResponse({'error': 'Transporte MCP pendiente de activación'},
+                        status_code=503, headers={'Cache-Control': 'no-store'})
 
 
 @app.get('/mcp')
