@@ -116,3 +116,9 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #statistics .need-summary-card{min-width:0;border:1px solid #dce6eb;border-radius:10px;background:#f2f6f8;padding:12px 14px;overflow-wrap:anywhere}
 .admin-reports #statistics .need-summary-card strong{display:block;font-size:16px;line-height:1.4}
 .admin-reports #statistics .need-summary-card p{margin:6px 0 0;line-height:1.4}
+
+/* Needs use the same horizontally scrollable report-table pattern as communities. */
+.admin-reports #statistics .needs-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.admin-reports #statistics .needs-table{width:100%;min-width:480px;border-collapse:collapse}
+.admin-reports #statistics .needs-table th,.admin-reports #statistics .needs-table td{padding:10px 12px;text-align:left;vertical-align:top;white-space:normal}
+.admin-reports #statistics .needs-table th:nth-child(n+2),.admin-reports #statistics .needs-table td:nth-child(n+2){text-align:center;font-variant-numeric:tabular-nums}
