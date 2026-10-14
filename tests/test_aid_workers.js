@@ -3,7 +3,7 @@ const source=fs.readFileSync('app/static/admin.js','utf8');
 const render=source.slice(source.indexOf('async function loadAid(){'),source.indexOf("\nif (typeof document.querySelector",source.indexOf('async function loadAid(){')));
 class Element{
  constructor(tag){this.tag=tag;this.children=[];this.textContent='';this.disabled=false;}
- append(node){this.children.push(node);node.parent=this;}
+ append(node){this.children.push(node);node.parent=this;if(!this.firstChild)this.firstChild=node;}
  replaceChildren(){this.children=[];}
  remove(){this.parent.children=this.parent.children.filter(n=>n!==this);}
 }
