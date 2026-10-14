@@ -85,11 +85,12 @@ function renderHousehold(r,parent){
 }
 function renderLifecycle(r,parent){
   const section=document.createElement('section');section.className='report-management';parent.append(section);
-  text('h3',r.archived_at?'Reporte archivado':'Gestión del reporte',section);
+  const toolbar=document.createElement('div');toolbar.className='report-management-toolbar';section.append(toolbar);
+  text('h3',r.archived_at?'Reporte archivado':'Gestión del reporte',toolbar);
   if(r.archived_at)text('p','Archivado el '+new Date(r.archived_at).toLocaleString('es-PA')+'. Se conservan los datos y fotografías.',section);
-  const archive=text('button',r.archived_at?'Restaurar del archivo':'Archivar reporte',section);archive.type='button';
+  const archive=text('button',r.archived_at?'Restaurar del archivo':'Archivar reporte',toolbar);archive.type='button';
   archive.onclick=async()=>{archive.disabled=true;try{await api('/api/admin/reports/'+r.id,{method:'PATCH',body:JSON.stringify({archived:!r.archived_at})});message.textContent=r.archived_at?'Reporte restaurado':'Reporte archivado sin borrar datos';await load();}catch(e){message.textContent=e.message;}finally{archive.disabled=false;}};
-  const details=document.createElement('details');section.append(details);text('summary','Eliminación definitiva',details);
+  const details=document.createElement('details');toolbar.append(details);text('summary','Eliminación definitiva',details);
   text('p','Eliminar borra los datos y fotos del sistema activo. Los respaldos anteriores vencen según la política de conservación. Esta acción no se puede deshacer.',details);
   const label=text('label','Escriba ELIMINAR '+r.id+' para confirmar',details),confirm=document.createElement('input');confirm.autocomplete='off';label.append(confirm);
   const remove=text('button','Eliminar definitivamente',details);remove.type='button';remove.className='danger';
