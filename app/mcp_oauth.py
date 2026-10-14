@@ -26,7 +26,7 @@ def verify_mcp_access_token(token: str) -> dict:
     for url in (issuer, jwks_url):
         parsed = urlparse(url)
         if (parsed.scheme != "https" or not parsed.hostname or parsed.username
-                or parsed.password or parsed.fragment):
+                or parsed.password or parsed.fragment or parsed.query):
             raise RuntimeError("Configuración OAuth insegura")
     if not token or len(token) > 8192:
         raise InvalidTokenError("Token ausente o demasiado largo")
@@ -42,4 +42,9 @@ def verify_mcp_access_token(token: str) -> dict:
     scopes = claims.get("scope", "")
     if not isinstance(scopes, str) or REQUIRED_SCOPE not in scopes.split():
         raise InvalidTokenError("Permiso insuficiente")
+    allowed_subject = os.getenv("REPORTAPA_OAUTH_ALLOWED_SUB", "").strip()
+    if not allowed_subject:
+        raise RuntimeError("Cuenta autorizada MCP no configurada")
+    if claims["sub"] != allowed_subject:
+        raise InvalidTokenError("Cuenta no autorizada para registrar reportes")
     return claims
