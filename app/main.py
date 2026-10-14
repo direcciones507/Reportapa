@@ -623,10 +623,42 @@ async def mcp_transport(request: Request):
     except (InvalidTokenError, PyJWKClientError, ValueError):
         return JSONResponse({'error': 'Token inválido'}, status_code=401,
                             headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
-    # A valid token alone does not authorize writes until the MCP handler is
-    # implemented and its end-to-end idempotency tests have passed.
-    return JSONResponse({'error': 'Transporte MCP pendiente de activación'},
-                        status_code=503, headers={'Cache-Control': 'no-store'})
+    try:
+        payload = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, 'JSON inválido')
+    if not isinstance(payload, dict) or payload.get('jsonrpc') != '2.0':
+        raise HTTPException(422, 'JSON-RPC 2.0 requerido')
+    method = payload.get('method')
+    request_id = payload.get('id')
+    if method == 'notifications/initialized':
+        return Response(status_code=202)
+    if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+        raise HTTPException(422, 'Identificador JSON-RPC inválido')
+    if method == 'initialize':
+        result = {
+            'protocolVersion': '2025-03-26',
+            'capabilities': {'tools': {'listChanged': False}},
+            'serverInfo': {'name': 'ReportaPA', 'version': '0.1.0'},
+        }
+    elif method == 'ping':
+        result = {}
+    elif method == 'tools/list':
+        from .mcp_contract import REGISTER_REPORT_TOOL
+        result = {'tools': [REGISTER_REPORT_TOOL]}
+    elif method == 'tools/call':
+        # Do not acknowledge registration before the database has committed.
+        return JSONResponse({
+            'jsonrpc': '2.0', 'id': request_id,
+            'error': {'code': -32000, 'message': 'Registro MCP aún no habilitado'},
+        }, headers={'Cache-Control': 'no-store'})
+    else:
+        return JSONResponse({
+            'jsonrpc': '2.0', 'id': request_id,
+            'error': {'code': -32601, 'message': 'Método no disponible'},
+        }, headers={'Cache-Control': 'no-store'})
+    return JSONResponse({'jsonrpc': '2.0', 'id': request_id, 'result': result},
+                        headers={'Cache-Control': 'no-store'})
 
 
 @app.get('/mcp')
