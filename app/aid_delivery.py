@@ -23,6 +23,17 @@ def install(app, db, admin, limit, signing, json_payload):
         except (ValueError, TypeError):
             return False
 
+    def fresh_worker_code(connection, login_name):
+        # A new credential must never match a retained credential for this identity.
+        previous = connection.execute(
+            'SELECT secret_hash FROM aid_workers WHERE login_name=%s',
+            (login_name,)).fetchall()
+        for _ in range(16):
+            code = f'{secrets.randbelow(1000000):06d}'
+            if not any(verify_code(code, row['secret_hash']) for row in previous):
+                return code
+        raise HTTPException(503, 'No se pudo generar un código nuevo. Intente nuevamente.')
+
     def worker(request: Request):
         token = request.cookies.get('rpa_aid_session', '')
         if len(token) != 64 or not re.fullmatch('[0-9a-f]{64}', token):
@@ -117,7 +128,7 @@ def install(app, db, admin, limit, signing, json_payload):
     def admin_workers(token=Depends(admin)):
         with db() as c:
             records = c.execute("""SELECT id,full_name,active,created_at,revoked_at
-                FROM aid_workers ORDER BY created_at DESC""").fetchall()
+                FROM aid_workers WHERE active=true ORDER BY created_at DESC""").fetchall()
         return {'workers': records}
 
     @app.post('/api/admin/aid/workers')
@@ -127,9 +138,9 @@ def install(app, db, admin, limit, signing, json_payload):
             raise HTTPException(422, 'Solicitud inválida')
         name = field(payload, 'full_name', 180)
         login_name = ' '.join(name.casefold().split())
-        code = f'{secrets.randbelow(1000000):06d}'
         try:
             with db() as c:
+                code = fresh_worker_code(c, login_name)
                 record = c.execute("""INSERT INTO aid_workers(id,full_name,login_name,secret_hash)
                     VALUES (%s,%s,%s,%s) RETURNING id""",
                     (uuid.uuid4(), name, login_name, code_hash(code))).fetchone()
@@ -141,13 +152,14 @@ def install(app, db, admin, limit, signing, json_payload):
 
     @app.post('/api/admin/aid/workers/{worker_id}/reset-code')
     def reset_worker_code(worker_id: uuid.UUID, token=Depends(admin)):
-        code = f'{secrets.randbelow(1000000):06d}'
         with db() as c:
-            record = c.execute("""UPDATE aid_workers SET secret_hash=%s
-                WHERE id=%s AND active=true RETURNING full_name""",
-                (code_hash(code), worker_id)).fetchone()
+            record = c.execute("""SELECT full_name,login_name FROM aid_workers
+                WHERE id=%s AND active=true FOR UPDATE""", (worker_id,)).fetchone()
             if not record:
                 raise HTTPException(404, 'Responsable no encontrado o inactivo')
+            code = fresh_worker_code(c, record['login_name'])
+            c.execute('UPDATE aid_workers SET secret_hash=%s WHERE id=%s',
+                      (code_hash(code), worker_id))
             c.execute('DELETE FROM aid_worker_sessions WHERE worker_id=%s', (worker_id,))
         return {'full_name': record['full_name'], 'code': code}
 

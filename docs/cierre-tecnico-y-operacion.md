@@ -112,3 +112,14 @@ Los defectos corregibles detectados en esta auditoría se repararon y entraron a
 - [ ] Confirmación final del workflow completo (Python/PostgreSQL, JavaScript, Docker y capacidad): registrar ejecución y commit en la conversación del PR #1 tras finalizar la nueva ejecución automática. No lanzar un segundo run para documentar el resultado.
 
 Alcance: solo pruebas y este checklist; sin cambios de aplicación, formularios, migraciones, producción, fotografías ni registros existentes. No se creó otro PR.
+
+## 14-10-2026 · Responsables registrados: activos y acciones alineadas
+
+- [x] GET administrativo filtra activos y la interfaz omite revocados. Tras confirmar la revocación en servidor, retira inmediatamente la fila, también si falla la recarga posterior. Se conserva el mecanismo que invalida sesiones y rechaza códigos de registros inactivos.
+- [x] Migración idempotente 007: crea primero índice único de nombres activos y después retira la unicidad global. Conserva todos los registros, hashes, nombres, fechas de revocación y referencias de entregas; no hay borrado ni reactivación de responsables. Compatible con lecturas de la versión anterior.
+- [x] Crear responsable genera una fila/UUID y código nuevos. El generador criptográfico de seis cifras existente rechaza cualquier código retenido para ese mismo nombre, también al restablecer el reemplazo. Se mantienen PBKDF2, límites, CSRF y permisos. No se cambian códigos ya emitidos ni entregas.
+- [x] Nombre/estado a la izquierda y las dos acciones agrupadas a la derecha; iguales alturas, separaciones y colores vigentes. Estilos limitados al listado, con ajuste móvil.
+- [x] 17 pruebas JavaScript aprobadas, incluidas exclusión de revocados y retiro de fila aunque falle la recarga. 21 pruebas Python sin DB aprobadas localmente; las 48 de PostgreSQL requieren CI aislado y no se presentan como aprobadas localmente.
+- [x] Chromium con respuestas simuladas a 320, 390, 768 y 1440px: botones juntos a la derecha, alturas iguales, colores conservados y sin desbordamientos. Revocar retira la fila y crear nuevamente muestra una identidad nueva.
+- [ ] CI con PostgreSQL descartable: comprobar inicio de sesión, revocación efectiva, historial/entrega retenidos, nueva alta, bloqueo de duplicados activos y rechazo forzado del código revocado al generar credenciales. Integrar solo tras aprobación de la suite.
+- [ ] Despliegue del servicio existente reportapa-web y comprobación posterior: registrar commit, ejecución y resultado final en el PR #11, reutilizado para esta corrección y dirigido al PR #1 operativo. Sin PR adicionales ni cambios en recepción de reportes o infraestructura.
