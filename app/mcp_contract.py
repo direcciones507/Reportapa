@@ -17,7 +17,7 @@ REGISTER_REPORT_TOOL = {
         "additionalProperties": False,
         "required": [
             "idempotency_key", "consent", "name", "phone", "province",
-            "district", "township", "community", "damage", "needs",
+            "district", "township", "community", "damage", "needs", "total_people",
         ],
         "properties": {
             "idempotency_key": {"type": "string", "format": "uuid"},
@@ -32,6 +32,13 @@ REGISTER_REPORT_TOOL = {
             "damage_type": {"type": "string"},
             "damage": {"type": "string", "minLength": 1},
             "needs": {"type": "array", "items": {"type": "string"}},
+            "total_people": {"type": "integer", "minimum": 1, "maximum": 1000},
+            "age_0_5": {"type": "integer", "minimum": 0},
+            "age_6_17": {"type": "integer", "minimum": 0},
+            "age_18_59": {"type": "integer", "minimum": 0},
+            "age_60_plus": {"type": "integer", "minimum": 0},
+            "people_disability": {"type": "integer", "minimum": 0},
+            "family_name": {"type": "string"},
             "needs_detail": {"type": "string"},
             "reporting_for_self": {"type": "string", "enum": ["yes", "no"]},
             "reporter_name": {"type": "string"},
