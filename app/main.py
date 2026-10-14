@@ -658,7 +658,10 @@ async def mcp_transport(request: Request):
         if (not isinstance(raw, dict) or set(raw) - set(schema['properties'])
                 or any(k not in raw for k in schema['required'])
                 or any(not isinstance(raw[k], str) or not raw[k].strip()
-                       for k in schema['required'] if k not in ('needs',))
+                       for k in schema['required'] if k not in ('needs', 'total_people'))
+                or not isinstance(raw.get('total_people'), int)
+                or isinstance(raw.get('total_people'), bool)
+                or not 1 <= raw['total_people'] <= 1000
                 or not isinstance(raw.get('needs'), list)
                 or any(not isinstance(n, str) for n in raw['needs'])):
             return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
