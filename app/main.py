@@ -647,11 +647,52 @@ async def mcp_transport(request: Request):
         from .mcp_contract import REGISTER_REPORT_TOOL
         result = {'tools': [REGISTER_REPORT_TOOL]}
     elif method == 'tools/call':
-        # Do not acknowledge registration before the database has committed.
-        return JSONResponse({
-            'jsonrpc': '2.0', 'id': request_id,
-            'error': {'code': -32000, 'message': 'Registro MCP aún no habilitado'},
-        }, headers={'Cache-Control': 'no-store'})
+        from .mcp_contract import REGISTER_REPORT_TOOL
+        params = payload.get('params')
+        if not isinstance(params, dict) or params.get('name') != REGISTER_REPORT_TOOL['name']:
+            return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                 'error': {'code': -32602, 'message': 'Herramienta desconocida'}},
+                                headers={'Cache-Control': 'no-store'})
+        raw = params.get('arguments')
+        schema = REGISTER_REPORT_TOOL['inputSchema']
+        if (not isinstance(raw, dict) or set(raw) - set(schema['properties'])
+                or any(k not in raw for k in schema['required'])
+                or any(not isinstance(raw[k], str) or not raw[k].strip()
+                       for k in schema['required'] if k not in ('needs',))
+                or not isinstance(raw.get('needs'), list)
+                or any(not isinstance(n, str) for n in raw['needs'])):
+            return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                 'error': {'code': -32602, 'message': 'Argumentos inválidos'}},
+                                headers={'Cache-Control': 'no-store'})
+        try:
+            key = str(uuid.UUID(raw['idempotency_key']))
+            if raw['consent'] != 'yes':
+                raise ValueError('Consentimiento requerido')
+            data = validate(raw, allow_missing_family=True)
+            fields = [(k, str(v)) for k, v in raw.items()
+                      if isinstance(v, (str, int, float)) and k != 'needs']
+            fields.extend(('needs', n) for n in data['needs'])
+            form = FormData(fields)
+            saved = await run_in_threadpool(persist_report, request, form, key, data)
+            if isinstance(saved, JSONResponse):
+                return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                     'result': {'isError': True, 'content': [
+                                         {'type': 'text', 'text': 'Posible duplicado; requiere confirmación adicional.'}]}},
+                                    headers={'Cache-Control': 'no-store'})
+            if not isinstance(saved, dict) or not saved.get('id'):
+                raise RuntimeError('No se recibió confirmación de almacenamiento')
+            result = {'content': [{'type': 'text', 'text':
+                                   'Reporte registrado. Número oficial: ' + str(saved['id'])}],
+                      'structuredContent': {'id': saved['id']}}
+        except (HTTPException, ValueError) as exc:
+            message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            result = {'isError': True, 'content': [{'type': 'text', 'text': str(message)}]}
+        except (PoolTimeout, TooManyRequests, psycopg.OperationalError,
+                psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
+            result = {'isError': True, 'content': [{'type': 'text', 'text':
+                                                   'Servicio ocupado. Reintente con la misma clave de envío.'}]}
+        return JSONResponse({'jsonrpc': '2.0', 'id': request_id, 'result': result},
+                            headers={'Cache-Control': 'no-store'})
     else:
         return JSONResponse({
             'jsonrpc': '2.0', 'id': request_id,
