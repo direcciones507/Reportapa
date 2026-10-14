@@ -58,3 +58,15 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports .report-pagination{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .admin-reports .report-pagination button{margin:0;min-height:44px}
 @media(max-width:600px){.admin-reports #reports .report-followup,.admin-reports #reports .report-management{padding:12px}.admin-reports #reports .report-followup-actions :is(button,.button){max-width:100%;font-size:14px;padding:12px}}
+
+
+/* Compact horizontal management actions in individual admin reports. */
+.admin-reports #reports .report-management-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px}
+.admin-reports #reports .report-management-toolbar h3{margin:0 12px 0 0}
+.admin-reports #reports .report-management-toolbar>button{margin:0;min-height:44px}
+.admin-reports #reports .report-management-toolbar>details{margin:0;padding:0;border:0;min-width:0}
+.admin-reports #reports .report-management-toolbar>details summary{min-height:44px;display:flex;align-items:center;padding:0 8px}
+.admin-reports #reports .report-management-toolbar>details[open]{flex-basis:100%;padding:10px 0;border-top:1px solid #dce6eb}
+.admin-reports #reports .report-management{padding-top:12px;padding-bottom:12px}
+.admin-reports #reports .report-management+label{margin-top:6px}
+@media(max-width:600px){.admin-reports #reports .report-management-toolbar{gap:6px 8px}.admin-reports #reports .report-management-toolbar h3{flex-basis:100%}}
