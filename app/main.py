@@ -273,7 +273,14 @@ async def submit_integrated_report(request: Request):
         raise HTTPException(401, 'Credenciales de integración inválidas')
     if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
         raise HTTPException(415, 'Se requiere JSON')
-    raw = await request.json()
+    if request.headers.get('content-length', '0').isdigit() and int(request.headers.get('content-length', '0')) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    if len(await request.body()) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    try:
+        raw = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, 'JSON inválido')
     if not isinstance(raw, dict):
         raise HTTPException(422, 'Se requiere un objeto JSON')
     try:
