@@ -118,7 +118,21 @@ def test_filtered_panel_excel_same_snapshot_and_historical_readonly(live):
     @contextmanager
     def readonly():
         with original() as c:
-            c.execute('SET TRANSACTION READ ONLY');yield c
+            c.execute('SET TRANSACTION READ ONLY')
+            class ReportReadOnly:
+                def execute(self, query, params=None):
+                    # Authentication renews its session on each request. Keep
+                    # report queries read-only while allowing only that write
+                    # on a separate connection, with real authentication intact.
+                    if query.startswith('UPDATE admin_sessions SET expires_at='):
+                        with original() as session_connection:
+                            return session_connection.execute(query, params)
+                    return c.execute(query, params)
+            yield ReportReadOnly()
+    # The session exception must not permit writes to citizen records.
+    with pytest.raises(m.psycopg.errors.ReadOnlySqlTransaction):
+        with readonly() as c:
+            c.execute("UPDATE reports SET status='visitado' WHERE FALSE")
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(m,'db',readonly)
         all_reports=live.get('/api/admin/reports?include_statistics=true').json()

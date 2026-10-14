@@ -4,7 +4,7 @@ function citizen(responses,files=[]){
   const node=id=>nodes[id]??=( {hidden:false,textContent:'',value:'yes',addEventListener(){},append(){}} );
   const form=node('#report');form.elements={photos:{files}};form.reset=()=>{form.resets=(form.resets||0)+1;};form.addEventListener=(event,fn)=>handler=fn;
   class Data{constructor(){this.fields={};}append(k,v){this.fields[k]=v;}}
-  const context={document:{querySelector:node,createElement:()=>({append(){}}),createTextNode:v=>v},crypto:{randomUUID:()=>String(Math.random())},FormData:Data,fetch:async(url,options)=>{if(url==='/api/config')return {json:async()=>({enabled:true,notice:'',needs:[]})};requests.push(options.body.fields);const result=responses.shift();return {ok:result.ok,json:async()=>result.body};}};
+  const context={window:{location:{hash:'#report'},addEventListener(){}},document:{querySelector:node,createElement:()=>({append(){}}),createTextNode:v=>v},crypto:{randomUUID:()=>String(Math.random())},FormData:Data,fetch:async(url,options)=>{if(url==='/api/config')return {json:async()=>({enabled:true,notice:'',needs:[]})};requests.push(options.body.fields);const result=responses.shift();return {ok:result.ok,json:async()=>result.body};}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../app/static/citizen.js'),'utf8'),context);
   return {nodes,requests,send:()=>handler({preventDefault(){}})};
 }

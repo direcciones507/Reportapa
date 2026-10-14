@@ -102,3 +102,13 @@ Los defectos corregibles detectados en esta auditoría se repararon y entraron a
 - [Preparación de infraestructura](preproduccion-infraestructura.md)
 - [Producción y pruebas físicas](produccion-y-pruebas.md)
 - [Conservación y recuperación](conservacion-y-recuperacion.md)
+
+
+## Corrección puntual de CI — ejecuciones 83, 84 y 85 (13-10-2026)
+
+- [x] Logs completos de los tres trabajos revisados. #83: 69 pruebas Python aprobadas; tres pruebas JavaScript fallaban con `window is not defined`. #84: cancelada al llegar el siguiente commit, con fallo Python ya registrado. #85: 68 aprobadas y una fallida con `ReadOnlySqlTransaction`.
+- [x] `tests/test_citizen.js`: simular `window.location.hash` y el listener de navegación en el entorno Node, sin cambiar el formulario real. Las 15 pruebas JavaScript pasan localmente.
+- [x] `tests/test_statistics.py`: conservar las consultas de reportes en transacciones PostgreSQL de solo lectura y permitir exclusivamente la renovación de `admin_sessions` en conexión separada. Autenticación real intacta, comprobación explícita de rechazo de UPDATE a reportes y comparación de todos los registros antes/después.
+- [ ] Confirmación final del workflow completo (Python/PostgreSQL, JavaScript, Docker y capacidad): registrar ejecución y commit en la conversación del PR #1 tras finalizar la nueva ejecución automática. No lanzar un segundo run para documentar el resultado.
+
+Alcance: solo pruebas y este checklist; sin cambios de aplicación, formularios, migraciones, producción, fotografías ni registros existentes. No se creó otro PR.
