@@ -629,3 +629,24 @@ async def mcp_transport_get():
     """MCP transport does not support unauthenticated streaming."""
     return Response(status_code=405, headers={'Allow': 'POST'})
 
+
+
+@app.get('/.well-known/oauth-protected-resource')
+@app.get('/.well-known/oauth-protected-resource/mcp')
+async def mcp_oauth_resource_metadata():
+    """RFC 9728 discovery, advertised only after an issuer is configured."""
+    issuer = os.getenv('REPORTAPA_OAUTH_ISSUER', '').strip()
+    if not issuer:
+        raise HTTPException(503, 'OAuth todavía no configurado')
+    parsed = urlparse(issuer)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment or parsed.query:
+        raise HTTPException(503, 'Configuración OAuth inválida')
+    return JSONResponse(
+        {
+            'resource': 'https://reportapa.online/mcp',
+            'authorization_servers': [issuer.rstrip('/')],
+            'scopes_supported': ['reportapa:reports:create'],
+            'bearer_methods_supported': ['header'],
+        },
+        headers={'Cache-Control': 'no-store'},
+    )
