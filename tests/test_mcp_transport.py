@@ -10,7 +10,8 @@ REPORT = {
     "consent": "yes", "name": "Test Person", "phone": "66951426",
     "province": "Veraguas", "district": "Santiago",
     "township": "Santiago", "community": "Prueba",
-    "damage": "Grietas en pared", "needs": ["Materiales para reparar la vivienda"]
+    "damage": "Grietas en pared", "total_people": 4, "age_6_17": 2, "age_18_59": 2,
+    "needs": ["Materiales para reparar la vivienda"]
 }
 
 
