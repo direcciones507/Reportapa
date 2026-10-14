@@ -611,15 +611,18 @@ async def mcp_transport(request: Request):
         raise HTTPException(415, 'Se requiere JSON')
     if len(await request.body()) > 32768:
         raise HTTPException(413, 'Solicitud demasiado grande')
-    # Advertise standards-based resource authorization, without exposing data.
-    # OAuth access tokens are NOT issued or validated until the authorization
-    # server is configured. Never accept the internal integration secret here.
+    # The discovery endpoint is available only with a configured issuer.
+    # Until token verification is implemented, reject every bearer credential.
+    # Return a standards-compliant OAuth challenge, never the internal API key.
     return JSONResponse(
-        {'error': 'OAuth de ReportaPA todavía no configurado'},
-        status_code=503,
+        {'error': 'MCP OAuth aún no está habilitado'},
+        status_code=401,
         headers={
             'Cache-Control': 'no-store',
-            'WWW-Authenticate': 'Bearer realm="ReportaPA", error="temporarily_unavailable"',
+            'WWW-Authenticate': (
+                'Bearer realm="ReportaPA", error="invalid_token", '
+                'resource_metadata="https://reportapa.online/.well-known/oauth-protected-resource"'
+            ),
         },
     )
 
