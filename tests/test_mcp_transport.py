@@ -61,5 +61,26 @@ class MCPTransportTests(unittest.TestCase):
         persist.assert_not_called()
 
 
+    @patch("app.mcp_oauth.verify_mcp_access_token", return_value={"sub": "test"})
+    @patch("app.main.persist_report")
+    def test_rejects_missing_household_total_without_write(self, persist, _verify):
+        arguments = {k: v for k, v in REPORT.items() if k != "total_people"}
+        response = self.rpc("tools/call", {"name": "registrar_reporte", "arguments": arguments})
+        self.assertEqual(response.json()["error"]["code"], -32602)
+        persist.assert_not_called()
+
+    @patch("app.mcp_oauth.verify_mcp_access_token", return_value={"sub": "test"})
+    @patch("app.main.persist_report", return_value={"id": "RPA-00000042"})
+    def test_retries_preserve_idempotency_key(self, persist, _verify):
+        params = {"name": "registrar_reporte", "arguments": REPORT}
+        first = self.rpc("tools/call", params)
+        second = self.rpc("tools/call", params)
+        self.assertEqual(first.json()["result"]["structuredContent"]["id"], "RPA-00000042")
+        self.assertEqual(second.json()["result"]["structuredContent"]["id"], "RPA-00000042")
+        self.assertEqual(persist.call_count, 2)
+        self.assertEqual(persist.call_args_list[0].args[2], REPORT["idempotency_key"])
+        self.assertEqual(persist.call_args_list[1].args[2], REPORT["idempotency_key"])
+
+
 if __name__ == "__main__":
     unittest.main()
