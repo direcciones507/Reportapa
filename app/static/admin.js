@@ -98,11 +98,12 @@ function renderLifecycle(r,parent){
 async function loadAid(){
  const workers=await api('/api/admin/aid/workers');
  const workerRoot=document.querySelector('#aid-workers');workerRoot.replaceChildren();
- workers.workers.forEach(w=>{
-  const row=document.createElement('p');workerRoot.append(row);
-  text('span',w.full_name+' · '+(w.active?'Activo':'Revocado')+' ',row);
+ workers.workers.filter(w=>w.active).forEach(w=>{
+  const row=document.createElement('div');row.className='aid-worker-row';workerRoot.append(row);
+  text('span',w.full_name+' · Activo',row).className='aid-worker-identity';
   if(w.active){
-   const reset=text('button','Restablecer código',row);reset.type='button';
+   const actions=document.createElement('div');actions.className='aid-worker-actions';row.append(actions);
+   const reset=text('button','Restablecer código',actions);reset.type='button';
    reset.onclick=async()=>{
     if(!confirm('¿Generar un nuevo código de seis números para '+w.full_name+'? El anterior dejará de funcionar.'))return;
     reset.disabled=true;
@@ -111,12 +112,12 @@ async function loadAid(){
      document.querySelector('#aid-issued-code').textContent='Nuevo código de '+result.full_name+': '+result.code+' (guárdelo ahora; no se volverá a mostrar)';
     }catch(e){message.textContent=e.message;}finally{reset.disabled=false;}
    };
-   const button=text('button','Revocar acceso',row);button.type='button';
+   const button=text('button','Revocar acceso',actions);button.type='button';
    button.onclick=async()=>{
     if(!confirm('¿Revocar acceso de '+w.full_name+'?'))return;
-    button.disabled=true;
-    try{await api('/api/admin/aid/workers/'+encodeURIComponent(w.id)+'/revoke',{method:'POST'});await loadAid();}
-    catch(e){message.textContent=e.message;button.disabled=false;}
+    button.disabled=true;reset.disabled=true;
+    try{await api('/api/admin/aid/workers/'+encodeURIComponent(w.id)+'/revoke',{method:'POST'});row.remove();await loadAid();}
+    catch(e){message.textContent=e.message;button.disabled=false;reset.disabled=false;}
    };
   }
  });

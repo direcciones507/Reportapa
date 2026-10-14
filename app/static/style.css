@@ -33,3 +33,11 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #aid-deliveries{background:white;border-radius:12px;padding:8px 16px;margin-top:12px}
 .admin-reports #aid-deliveries article{margin:0}
 @media(max-width:600px){.admin-reports #panel{padding:16px}.admin-reports .admin-toolbar{align-items:flex-start}.admin-reports .aid-deliveries-heading{align-items:stretch;flex-direction:column}.admin-reports .aid-deliveries-heading button{width:100%;margin:0}}
+
+/* Registered aid workers only: identity left, existing actions together right. */
+.admin-reports #aid-workers .aid-worker-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #dce6eb}
+.admin-reports #aid-workers .aid-worker-identity{flex:1;min-width:0;overflow-wrap:anywhere}
+.admin-reports #aid-workers .aid-worker-actions{display:flex;justify-content:flex-end;align-items:stretch;gap:8px;margin-left:auto;flex-shrink:0}
+.admin-reports #aid-workers .aid-worker-actions button{margin:0;min-height:44px;padding:10px 12px;font-size:14px;line-height:1.4}
+@media(max-width:600px){.admin-reports #aid-worker-list{padding:12px}.admin-reports #aid-workers .aid-worker-row{flex-wrap:wrap}.admin-reports #aid-workers .aid-worker-identity{flex:1 0 100%}.admin-reports #aid-workers .aid-worker-actions{width:100%;min-width:0}.admin-reports #aid-workers .aid-worker-actions button{flex:1;min-width:0;padding:10px 8px;font-size:13px;overflow-wrap:anywhere}}
+@media(max-width:360px){.admin-reports #aid-workers .aid-worker-actions button{font-size:12px;padding:8px 6px}}
