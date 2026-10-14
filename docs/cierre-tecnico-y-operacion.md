@@ -123,3 +123,11 @@ Alcance: solo pruebas y este checklist; sin cambios de aplicación, formularios,
 - [x] Chromium con respuestas simuladas a 320, 390, 768 y 1440px: botones juntos a la derecha, alturas iguales, colores conservados y sin desbordamientos. Revocar retira la fila y crear nuevamente muestra una identidad nueva.
 - [ ] CI con PostgreSQL descartable: comprobar inicio de sesión, revocación efectiva, historial/entrega retenidos, nueva alta, bloqueo de duplicados activos y rechazo forzado del código revocado al generar credenciales. Integrar solo tras aprobación de la suite.
 - [ ] Despliegue del servicio existente reportapa-web y comprobación posterior: registrar commit, ejecución y resultado final en el PR #11, reutilizado para esta corrección y dirigido al PR #1 operativo. Sin PR adicionales ni cambios en recepción de reportes o infraestructura.
+
+## 14-10-2026 · Compactación visual del reporte individual ADMIN
+
+- [x] Estilos limitados al seguimiento y gestión dentro de #reports: rellenos de 16px (12px móvil), márgenes y títulos próximos; observación inicial de 72px ampliable verticalmente.
+- [x] WhatsApp y PDF agrupados con separación uniforme; guardar inmediatamente tras campos. Archivo y eliminación mantienen separación visible y confirmación. Estado operativo próximo; Anterior/Siguiente agrupados. Colores, textos y controladores sin cambios.
+- [x] Chromium con datos simulados a 390/768/1440px: altura inferior 926→717px (23%) en móvil y 817→682px (16%) en tablet/escritorio; sin desbordamientos. Botones táctiles de al menos 44px, PDF con ruta original, guardar conserva payload y eliminación rechaza confirmación incorrecta.
+- [x] 17 pruebas JavaScript aprobadas. Python local: 21 aprobadas y 48 omitidas por ausencia de PostgreSQL local; integración completa se verifica en CI aislado.
+- [ ] GitHub Actions con PostgreSQL y publicación: registrar ejecución, commit y despliegue en el PR de esta corrección, integrando solo tras aprobación. Sin cambios de base de datos ni registros reales.

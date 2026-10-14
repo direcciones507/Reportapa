@@ -41,3 +41,20 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #aid-workers .aid-worker-actions button{margin:0;min-height:44px;padding:10px 12px;font-size:14px;line-height:1.4}
 @media(max-width:600px){.admin-reports #aid-worker-list{padding:12px}.admin-reports #aid-workers .aid-worker-row{flex-wrap:wrap}.admin-reports #aid-workers .aid-worker-identity{flex:1 0 100%}.admin-reports #aid-workers .aid-worker-actions{width:100%;min-width:0}.admin-reports #aid-workers .aid-worker-actions button{flex:1;min-width:0;padding:10px 8px;font-size:13px;overflow-wrap:anywhere}}
 @media(max-width:360px){.admin-reports #aid-workers .aid-worker-actions button{font-size:12px;padding:8px 6px}}
+
+/* Compactación exclusiva del seguimiento y la gestión de cada reporte privado. */
+.admin-reports #reports .report-followup,.admin-reports #reports .report-management{padding:16px;margin:12px 0}
+.admin-reports #reports :is(.report-followup,.report-management) h3{margin:0 0 10px}
+.admin-reports #reports :is(.report-followup,.report-management) p{margin:8px 0;line-height:1.45}
+.admin-reports #reports :is(.report-followup,.report-management) label{margin:10px 0}
+.admin-reports #reports .report-followup textarea{min-height:72px;height:72px;resize:vertical}
+.admin-reports #reports .report-followup-actions{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:10px 0}
+.admin-reports #reports .report-followup-actions :is(button,.button){margin:0;min-height:44px;display:flex;align-items:center}
+.admin-reports #reports :is(.report-followup,.report-management)>button{min-height:44px;margin:0}
+.admin-reports #reports .report-followup details{margin-top:12px}
+.admin-reports #reports .report-management details{margin-top:12px;padding-top:12px;border-top:1px solid #dce6eb}
+.admin-reports #reports .report-management summary{min-height:44px;align-content:center;cursor:pointer}
+.admin-reports #reports .report-management+label{margin:10px 0 0}
+.admin-reports .report-pagination{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.admin-reports .report-pagination button{margin:0;min-height:44px}
+@media(max-width:600px){.admin-reports #reports .report-followup,.admin-reports #reports .report-management{padding:12px}.admin-reports #reports .report-followup-actions :is(button,.button){max-width:100%;font-size:14px;padding:12px}}
