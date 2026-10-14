@@ -182,7 +182,7 @@ document.querySelector('#aid-refresh').onclick=()=>loadAid().catch(e=>message.te
 
 
 // Paper forms use the same validated report pipeline, with ADMIN session and CSRF.
-const paperForm=document.querySelector('#paper-report-form');
+const paperForm=typeof document.querySelector==='function'?document.querySelector('#paper-report-form'):null;
 if(paperForm){
  let paperKey=null;
  paperForm.addEventListener('input',()=>{paperKey=null;});
