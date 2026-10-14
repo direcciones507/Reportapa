@@ -97,3 +97,16 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports .report-indicators-toolbar h3{margin:0;flex:1 1 230px;font-size:clamp(16px,2vw,21px)}
 .admin-reports .report-indicators-toolbar :is(button,.button){margin:0;min-height:44px;max-width:100%;white-space:normal}
 @media(max-width:700px){.admin-reports .admin-choice-grid{grid-template-columns:1fr}.admin-reports .admin-choice-grid button{min-height:82px}.admin-reports .report-indicators-toolbar h3{order:-1;flex-basis:100%}}
+
+/* Compact, readable report indicators and follow-up action. */
+.admin-reports #statistics{min-width:0;overflow-wrap:anywhere}
+.admin-reports #statistics .stat-totals{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px;margin:12px 0}
+.admin-reports #statistics .stat-totals>div{min-width:0;padding:12px 14px;overflow-wrap:anywhere}
+.admin-reports #statistics .stat-totals dt{font-size:14px;line-height:1.35}
+.admin-reports #statistics .stat-totals dd{font-size:clamp(17px,2vw,24px);line-height:1.25;overflow-wrap:anywhere;word-break:normal;margin-top:6px}
+.admin-reports #statistics>p{line-height:1.45;margin:10px 0}
+.admin-reports #statistics>h3{margin:16px 0 8px}
+.admin-reports #statistics>ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:4px 20px;margin:6px 0 12px;padding-left:24px}
+.admin-reports #statistics>ul li{min-width:0;overflow-wrap:anywhere;line-height:1.4}
+.admin-reports #reports .report-followup>button{display:flex;width:100%;max-width:100%;justify-content:center;align-items:center;text-align:center;white-space:normal;line-height:1.35;padding:12px 14px;box-sizing:border-box}
+.admin-reports #reports .report-followup label,.admin-reports #reports .report-followup textarea{width:100%;max-width:100%;box-sizing:border-box}
