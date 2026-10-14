@@ -71,6 +71,8 @@ document.querySelector('#open-aid-admin').onclick=()=>showAdminView('aid');
 document.querySelectorAll('[data-admin-home]').forEach(button=>button.onclick=()=>showAdminView('home'));
 async function opened(token){showAdminView('home');csrf=token;window.__adminIdleCsrf=token;lastAdminActivity=Date.now();document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();await loadAid().catch(e=>message.textContent=e.message);}
 document.querySelector('#login').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});e.target.reset();message.textContent='';await opened(r.csrf);}catch(e){message.textContent=e.message;}});
+document.querySelector('#filters').addEventListener('input',()=>{document.querySelector('#filtered-pdf').hidden=true;});
+document.querySelector('#filters').addEventListener('change',()=>{document.querySelector('#filtered-pdf').hidden=true;});
 document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;const pdf=document.querySelector('#filtered-pdf');pdf.href='/api/admin/export/summary?'+query();pdf.hidden=false;load();});
 document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#filters').reset();document.querySelector('#filtered-pdf').hidden=true;page=1;load();};
 document.querySelector('#prev').onclick=()=>{page--;load();};document.querySelector('#next').onclick=()=>{page++;load();};document.querySelector('#logout').onclick=async()=>{try{await api('/api/admin/logout',{method:'POST'});location.reload();}catch(e){message.textContent=e.message;}};
