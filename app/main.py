@@ -284,7 +284,7 @@ async def submit_integrated_report(request: Request):
         raise HTTPException(422, 'Se requiere consentimiento registrado')
     data = validate(raw, allow_missing_family=True)
     fields = [(k, str(v)) for k, v in raw.items() if isinstance(v, (str, int, float)) and k != 'needs']
-    fields.extend(('needs', n) for n in raw.get('needs', []) if isinstance(n, str))
+    fields.extend(('needs', n) for n in data['needs'])
     form = FormData(fields)
     try:
         return await run_in_threadpool(persist_report, request, form, key, data)
