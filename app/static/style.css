@@ -110,3 +110,9 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #statistics>ul li{min-width:0;overflow-wrap:anywhere;line-height:1.4}
 .admin-reports #reports .report-followup>button{display:flex;width:100%;max-width:100%;justify-content:center;align-items:center;text-align:center;white-space:normal;line-height:1.35;padding:12px 14px;box-sizing:border-box}
 .admin-reports #reports .report-followup label,.admin-reports #reports .report-followup textarea{width:100%;max-width:100%;box-sizing:border-box}
+
+/* Needs summary: show meaningful counts instead of empty categories. */
+.admin-reports #statistics .needs-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:10px;margin:10px 0}
+.admin-reports #statistics .need-summary-card{min-width:0;border:1px solid #dce6eb;border-radius:10px;background:#f2f6f8;padding:12px 14px;overflow-wrap:anywhere}
+.admin-reports #statistics .need-summary-card strong{display:block;font-size:16px;line-height:1.4}
+.admin-reports #statistics .need-summary-card p{margin:6px 0 0;line-height:1.4}
