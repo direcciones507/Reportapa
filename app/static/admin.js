@@ -61,13 +61,14 @@ document.querySelector('#prev').onclick=()=>{page--;load();};document.querySelec
 fetch('/api/config').then(r=>r.json()).then(c=>[...c.needs,'No especificada'].forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;document.querySelector('[name=need]').append(o);}));api('/api/admin/session').then(r=>opened(r.csrf)).catch(()=>{});
 
 function renderHelp(r,parent){
-  const box=document.createElement('section');parent.append(box);
+  const box=document.createElement('section');box.className='report-followup';parent.append(box);
   const heading=text('h3','Ayuda: '+ReportaFollowup.states[r.estado_ayuda],box);
   if(['pendiente_confirmar','sin_ayuda'].includes(r.estado_ayuda))heading.className='help-attention';
   text('p','Último seguimiento: '+(r.ayuda_actualizada_at?new Date(r.ayuda_actualizada_at).toLocaleString('es-PA'):'Sin confirmar'),box);
-  const wa=text('button','Consultar ayuda por WhatsApp',box);wa.type='button';
+  const actions=document.createElement('div');actions.className='report-followup-actions';box.append(actions);
+  const wa=text('button','Consultar ayuda por WhatsApp',actions);wa.type='button';
   wa.onclick=()=>{try{const url=ReportaFollowup.whatsappUrl(r.data.phone,r.id);window.open(url,'_blank','noopener,noreferrer');text('p','Revise el mensaje en WhatsApp y envíelo manualmente. Abrir WhatsApp no confirma el envío ni cambia el estado de ayuda.',box);}catch(e){message.textContent=e.message;}};
-  const pdf=text('a','Descargar ficha PDF individual',box);pdf.href='/api/admin/reports/'+encodeURIComponent(r.id)+'/pdf';pdf.className='button';
+  const pdf=text('a','Descargar ficha PDF individual',actions);pdf.href='/api/admin/reports/'+encodeURIComponent(r.id)+'/pdf';pdf.className='button';
   const label=text('label','Estado de ayuda',box),select=document.createElement('select');
   Object.entries(ReportaFollowup.states).forEach(([value,title])=>{const o=document.createElement('option');o.value=value;o.textContent=title;select.append(o);});select.value=r.estado_ayuda;label.append(select);
   const noteLabel=text('label','Observación breve (opcional)',box),note=document.createElement('textarea');note.maxLength=500;note.value=r.ayuda_observacion||'';noteLabel.append(note);
@@ -83,7 +84,7 @@ function renderHousehold(r,parent){
   if(r.data.coordinates)text('p','Coordenadas indicadas en Maps: '+r.data.coordinates.latitude+', '+r.data.coordinates.longitude,parent);
 }
 function renderLifecycle(r,parent){
-  const section=document.createElement('section');parent.append(section);
+  const section=document.createElement('section');section.className='report-management';parent.append(section);
   text('h3',r.archived_at?'Reporte archivado':'Gestión del reporte',section);
   if(r.archived_at)text('p','Archivado el '+new Date(r.archived_at).toLocaleString('es-PA')+'. Se conservan los datos y fotografías.',section);
   const archive=text('button',r.archived_at?'Restaurar del archivo':'Archivar reporte',section);archive.type='button';
