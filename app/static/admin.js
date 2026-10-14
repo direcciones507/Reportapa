@@ -25,10 +25,10 @@ function renderStatistics(stats,at){
   const root=document.querySelector('#statistics');root.replaceChildren();
   text('p','Actualizado: '+new Date(at).toLocaleString('es-PA',{timeZone:'America/Panama'}),root);
   const totals=document.createElement('dl');totals.className='stat-totals';root.append(totals);
-  [['Reportes',stats.reports],['Grupos familiares declarados',stats.family_groups],
+  [['Reportes',stats.reports],['Familias reportadas',stats.family_groups],
    ['Pendientes',stats.tracking.pending],['En seguimiento',stats.tracking.followup],
    ['Con atención registrada',stats.tracking.attended],['Sin identificación familiar',stats.unidentified_family_reports],
-   ['Viviendas únicas','No determinadas']].forEach(([label,value])=>{const item=document.createElement('div');totals.append(item);text('dt',label,item);text('dd',String(value),item);});
+   ['Viviendas únicas','No determinadas'],['Personas afectadas (declaradas)',stats.affected_people_reported ?? 'No disponible']].forEach(([label,value])=>{const item=document.createElement('div');totals.append(item);text('dt',label,item);text('dd',String(value),item);});
   text('p',stats.family_method,root);text('p',stats.attention_method,root);
   text('h3','Comunidades (todos los reportes filtrados)',root);
   const scroll=document.createElement('div');scroll.className='stat-scroll';root.append(scroll);
@@ -51,7 +51,7 @@ function renderStatistics(stats,at){
   const needsTable=document.createElement('table');needsTable.className='needs-table';needsScroll.append(needsTable);
   const needsHead=document.createElement('thead');needsTable.append(needsHead);
   const needsHeader=document.createElement('tr');needsHead.append(needsHeader);
-  ['Necesidad','Grupos familiares','Reportes'].forEach(title=>text('th',title,needsHeader).scope='col');
+  ['Necesidad','Familias reportadas','Reportes'].forEach(title=>text('th',title,needsHeader).scope='col');
   const needsBody=document.createElement('tbody');needsTable.append(needsBody);
   activeNeeds.forEach(n=>{
     const row=document.createElement('tr');needsBody.append(row);
@@ -71,8 +71,8 @@ document.querySelector('#open-aid-admin').onclick=()=>showAdminView('aid');
 document.querySelectorAll('[data-admin-home]').forEach(button=>button.onclick=()=>showAdminView('home'));
 async function opened(token){showAdminView('home');csrf=token;window.__adminIdleCsrf=token;lastAdminActivity=Date.now();document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;await load();await refreshStorage();await loadAid().catch(e=>message.textContent=e.message);}
 document.querySelector('#login').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('/api/admin/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});e.target.reset();message.textContent='';await opened(r.csrf);}catch(e){message.textContent=e.message;}});
-document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;load();});
-document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#filters').reset();page=1;load();};
+document.querySelector('#filters').addEventListener('submit',e=>{e.preventDefault();page=1;const pdf=document.querySelector('#filtered-pdf');pdf.href='/api/admin/export/summary?'+query();pdf.hidden=false;load();});
+document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#filters').reset();document.querySelector('#filtered-pdf').hidden=true;page=1;load();};
 document.querySelector('#prev').onclick=()=>{page--;load();};document.querySelector('#next').onclick=()=>{page++;load();};document.querySelector('#logout').onclick=async()=>{try{await api('/api/admin/logout',{method:'POST'});location.reload();}catch(e){message.textContent=e.message;}};
 fetch('/api/config').then(r=>r.json()).then(c=>[...c.needs,'No especificada'].forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;document.querySelector('[name=need]').append(o);}));api('/api/admin/session').then(r=>opened(r.csrf)).catch(()=>{});
 
