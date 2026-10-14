@@ -70,3 +70,14 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #reports .report-management{padding-top:12px;padding-bottom:12px}
 .admin-reports #reports .report-management+label{margin-top:6px}
 @media(max-width:600px){.admin-reports #reports .report-management-toolbar{gap:6px 8px}.admin-reports #reports .report-management-toolbar h3{flex-basis:100%}}
+
+/* Two-column individual report controls; mobile stacks without changing handlers. */
+.admin-reports #reports .report-detail-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;margin:12px 0}
+.admin-reports #reports .report-detail-panel{min-width:0;background:#f8fbfc;border:1px solid #dce6eb;border-radius:12px;padding:12px}
+.admin-reports #reports .report-detail-panel .report-followup,.admin-reports #reports .report-detail-panel .report-management{margin:0;padding:8px 4px;background:transparent;border:0;box-shadow:none}
+.admin-reports #reports .report-detail-panel .report-followup-actions :is(button,.button){flex:1 1 180px;justify-content:center;text-align:center;white-space:normal}
+.admin-reports #reports .report-detail-panel>label{display:block;margin:12px 4px 0}
+.admin-reports #reports .report-detail-panel>label select{width:100%;max-width:100%}
+.admin-reports #reports .report-detail-panel .report-management-toolbar{align-items:flex-start}
+.admin-reports #reports .report-detail-panel .report-management-toolbar h3{flex-basis:100%;margin:0 0 6px}
+@media(max-width:700px){.admin-reports #reports .report-detail-panels{grid-template-columns:minmax(0,1fr);gap:10px}.admin-reports #reports .report-detail-panel{padding:10px}}
