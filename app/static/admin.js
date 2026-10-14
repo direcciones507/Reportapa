@@ -144,12 +144,18 @@ async function loadAid(){
  const deliveries=await api('/api/admin/aid/deliveries');
  const root=document.querySelector('#aid-deliveries');root.replaceChildren();
  text('p',deliveries.deliveries.length+' entregas recientes',root);
+ const scroll=document.createElement('div');scroll.className='aid-deliveries-scroll';root.append(scroll);
+ const table=document.createElement('table');table.className='aid-deliveries-table';scroll.append(table);
+ const thead=document.createElement('thead');thead.append(document.createElement('tr'));
+ ['Fecha','Beneficiario','Lugar','Tipo de ayuda','Responsable'].forEach(label=>{const th=text('th',label,thead.firstChild);th.scope='col';});
+ const tbody=document.createElement('tbody');table.append(tbody);
  deliveries.deliveries.forEach(d=>{
-  const row=document.createElement('article');root.append(row);
-  text('h3',d.beneficiary_name+' · '+d.beneficiary_id,row);
-  text('p',d.place+' · '+d.aid_type,row);
-  text('p','Responsable: '+d.worker_name+' · '+new Date(d.created_at).toLocaleString('es-PA',{timeZone:'America/Panama'}),row);
+  const tr=document.createElement('tr');tbody.append(tr);
+  const date=d.created_at?new Date(d.created_at).toLocaleString('es-PA',{timeZone:'America/Panama'}):'Sin fecha';
+  [date,d.beneficiary_name||'',d.place||'',d.aid_type||'',d.worker_name||''].forEach(value=>text('td',value,tr));
  });
+ if(!deliveries.deliveries.length){const tr=document.createElement('tr');tbody.append(tr);const td=text('td','Todavía no hay entregas registradas.',tr);td.colSpan=5;}
+
 }
 if (typeof document.querySelector === 'function') {
 document.querySelector('#aid-create-worker').addEventListener('submit',async event=>{
