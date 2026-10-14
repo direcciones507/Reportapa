@@ -6,9 +6,9 @@ from fastapi import HTTPException
 AGE_GROUPS={'age_0_5':'0 a 5 años','age_6_17':'6 a 17 años','age_18_59':'18 a 59 años','age_60_plus':'60 años o más'}
 COUNT_FIELDS={**AGE_GROUPS,'people_disability':'Personas con discapacidad'}
 
-def household(raw):
+def household(raw, allow_missing_family=False):
     family=str(raw.get('family_name') or '').strip()
-    if not family or len(family)>300: raise HTTPException(422,'Indique el nombre de la familia (máximo 300 caracteres)')
+    if (not family and not allow_missing_family) or len(family)>300: raise HTTPException(422,'Indique el nombre de la familia (máximo 300 caracteres)')
     values={'family_name':family}
     for field in ('total_people',*COUNT_FIELDS):
         value=raw.get(field)
