@@ -611,11 +611,16 @@ async def mcp_transport(request: Request):
         raise HTTPException(415, 'Se requiere JSON')
     if len(await request.body()) > 32768:
         raise HTTPException(413, 'Solicitud demasiado grande')
-    # No authentication bypass: fail closed even for initialize and tools/list.
+    # Advertise standards-based resource authorization, without exposing data.
+    # OAuth access tokens are NOT issued or validated until the authorization
+    # server is configured. Never accept the internal integration secret here.
     return JSONResponse(
         {'error': 'OAuth de ReportaPA todavía no configurado'},
         status_code=503,
-        headers={'Cache-Control': 'no-store'},
+        headers={
+            'Cache-Control': 'no-store',
+            'WWW-Authenticate': 'Bearer realm="ReportaPA", error="temporarily_unavailable"',
+        },
     )
 
 
