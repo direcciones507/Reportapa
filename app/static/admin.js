@@ -47,15 +47,19 @@ function renderStatistics(stats,at){
   stats.damages.forEach(d=>text('li',d.type+': '+d.reports+' reportes',damageList));
   text('h3','Necesidades declaradas',root);
   const activeNeeds=stats.needs.filter(n=>n.reports>0);
-  const needsList=document.createElement('div');needsList.className='needs-summary';root.append(needsList);
-  if(!activeNeeds.length)text('p','No hay necesidades declaradas en los reportes seleccionados.',needsList);
+  const needsScroll=document.createElement('div');needsScroll.className='stat-scroll needs-table-scroll';root.append(needsScroll);
+  const needsTable=document.createElement('table');needsTable.className='needs-table';needsScroll.append(needsTable);
+  const needsHead=document.createElement('thead');needsTable.append(needsHead);
+  const needsHeader=document.createElement('tr');needsHead.append(needsHeader);
+  ['Necesidad','Grupos familiares','Reportes'].forEach(title=>text('th',title,needsHeader).scope='col');
+  const needsBody=document.createElement('tbody');needsTable.append(needsBody);
   activeNeeds.forEach(n=>{
-    const card=document.createElement('div');card.className='need-summary-card';needsList.append(card);
-    text('strong',n.category,card);
-    const reports=n.reports+' '+(n.reports===1?'reporte':'reportes');
-    const families=n.family_groups===null?'Grupos familiares: no determinados':n.family_groups+' '+(n.family_groups===1?'grupo familiar':'grupos familiares');
-    text('p',families+' · '+reports+(n.unidentified_family_reports?' · '+n.unidentified_family_reports+' sin identificación familiar':''),card);
+    const row=document.createElement('tr');needsBody.append(row);
+    text('td',n.category,row);
+    text('td',n.family_groups===null?'No determinados':String(n.family_groups),row);
+    text('td',String(n.reports),row);
   });
+  if(!activeNeeds.length){const row=document.createElement('tr');needsBody.append(row);const cell=text('td','No hay necesidades declaradas en los reportes seleccionados.',row);cell.colSpan=3;}
   text('p','Solo se muestran necesidades con reportes. Una familia puede declarar varias necesidades.',root);
 }
 async function load(){const sequence=++loadSequence;const output=document.querySelector('#statistics');output.replaceChildren();text('p','Consultando estadísticas de los filtros seleccionados…',output);try{const q=query();document.querySelectorAll('.export').forEach(a=>a.href='/api/admin/export/'+a.dataset.kind+'?'+q);q.set('page',page);q.set('include_statistics','true');const d=await api('/api/admin/reports?'+q);if(sequence!==loadSequence)return;renderStatistics(d.statistics,d.statistics_at);total=d.total;document.querySelector('#total').textContent=total+' reportes · página '+page;const root=document.querySelector('#reports');root.replaceChildren();d.reports.forEach(r=>{const a=document.createElement('article');root.append(a);text('h2',r.id+' · '+r.data.name,a);renderHousehold(r,a);text('p','Reporte realizado por: '+(r.data.reporter_name||r.data.name),a);text('p',new Date(r.created_at).toLocaleString('es-PA'),a);text('p',[r.data.province,r.data.district,r.data.township,r.data.community].join(' / '),a);text('p','Teléfono: '+r.data.phone,a);text('p',(r.data.damage_type||'No especificada')+' — '+(r.data.damage||''),a);text('p','Necesidades: '+(Array.isArray(r.data.needs)?r.data.needs:[]).filter(n=>typeof n==='string').join(', ')+' '+(r.data.needs_detail||''),a);const link=text('a','Abrir Google Maps',a);link.href=r.data.maps;link.target='_blank';link.rel='noopener noreferrer';r.photos.forEach(p=>{const img=document.createElement('img');img.src='/api/admin/reports/'+r.id+'/photos/'+p;img.alt='Fotografía privada del reporte';img.loading='lazy';a.append(img);});const panels=document.createElement('div');panels.className='report-detail-panels';a.append(panels);const helpPanel=document.createElement('div');helpPanel.className='report-detail-panel';panels.append(helpPanel);renderHelp(r,helpPanel);const managementPanel=document.createElement('div');managementPanel.className='report-detail-panel';panels.append(managementPanel);renderLifecycle(r,managementPanel);const l=text('label','Estado operativo del reporte',managementPanel),s=document.createElement('select');['pendiente','contactado','visitado'].forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.append(o);});s.value=r.status;l.append(s);s.addEventListener('change',async()=>{try{await api('/api/admin/reports/'+r.id,{method:'PATCH',body:JSON.stringify({status:s.value})});message.textContent='Estado guardado';await load();}catch(e){s.value=r.status;message.textContent=e.message;}});});document.querySelector('#prev').disabled=page===1;document.querySelector('#next').disabled=page*20>=total;}catch(e){if(sequence!==loadSequence)return;output.replaceChildren();text('p','No se pudieron actualizar las estadísticas. Vuelva a aplicar los filtros.',output);message.textContent=e.message;}}
