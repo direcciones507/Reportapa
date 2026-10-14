@@ -597,3 +597,30 @@ def export(kind: str, request: Request, token=Depends(admin)):
 # Register isolated aid-delivery endpoints after existing dependencies are defined.
 from .aid_delivery import install as install_aid_delivery
 install_aid_delivery(app, db, admin, limit, signing, json_payload)
+
+
+@app.post('/mcp')
+async def mcp_transport(request: Request):
+    """Stateless MCP JSON-RPC transport; disabled until OAuth is implemented.
+
+    Do not accept the internal integration token as an MCP credential.
+    External ChatGPT clients must use OAuth access tokens with verified
+    issuer, audience, scopes, expiry and revocation.
+    """
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+        raise HTTPException(415, 'Se requiere JSON')
+    if len(await request.body()) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    # No authentication bypass: fail closed even for initialize and tools/list.
+    return JSONResponse(
+        {'error': 'OAuth de ReportaPA todavía no configurado'},
+        status_code=503,
+        headers={'Cache-Control': 'no-store'},
+    )
+
+
+@app.get('/mcp')
+async def mcp_transport_get():
+    """MCP transport does not support unauthenticated streaming."""
+    return Response(status_code=405, headers={'Allow': 'POST'})
+
