@@ -81,3 +81,19 @@ body:not(.admin-reports) main > section[aria-label="Opciones de ReportaPA"] nav 
 .admin-reports #reports .report-detail-panel .report-management-toolbar{align-items:flex-start}
 .admin-reports #reports .report-detail-panel .report-management-toolbar h3{flex-basis:100%;margin:0 0 6px}
 @media(max-width:700px){.admin-reports #reports .report-detail-panels{grid-template-columns:minmax(0,1fr);gap:10px}.admin-reports #reports .report-detail-panel{padding:10px}}
+
+/* Admin landing and two isolated operational sections. */
+.admin-reports #panel [hidden]{display:none!important}
+.admin-reports .admin-landing{padding:18px 0 24px}
+.admin-reports .admin-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
+.admin-reports .admin-choice-grid button{min-height:116px;width:100%;margin:0;font-size:clamp(17px,2vw,23px);font-weight:700;border-radius:14px}
+.admin-reports .admin-back{margin:0 0 16px;background:#365468}
+.admin-reports .admin-filter-panel{margin:12px 0;border:1px solid #dce6eb;border-radius:12px;background:#f8fbfc}
+.admin-reports .admin-filter-panel>summary{padding:15px 18px;font-weight:700;cursor:pointer;min-height:50px}
+.admin-reports .admin-filter-panel>form{padding:0 16px 16px}
+.admin-reports .admin-filter-panel .grid{min-width:0}
+.admin-reports .admin-filter-panel button{max-width:100%;white-space:normal}
+.admin-reports .report-indicators-toolbar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:12px 0}
+.admin-reports .report-indicators-toolbar h3{margin:0;flex:1 1 230px;font-size:clamp(16px,2vw,21px)}
+.admin-reports .report-indicators-toolbar :is(button,.button){margin:0;min-height:44px;max-width:100%;white-space:normal}
+@media(max-width:700px){.admin-reports .admin-choice-grid{grid-template-columns:1fr}.admin-reports .admin-choice-grid button{min-height:82px}.admin-reports .report-indicators-toolbar h3{order:-1;flex-basis:100%}}
