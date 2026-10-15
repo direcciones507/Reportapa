@@ -406,8 +406,8 @@ def rows(request, all_rows=False, page=None):
         search=request.query_params.get('search','').strip()
         if len(search)>120: raise HTTPException(422,'Búsqueda demasiado larga')
         if search:
-            pattern='%'+search.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
-            clauses.append("(id ILIKE %s ESCAPE '\\' OR data->>'name' ILIKE %s ESCAPE '\\' OR data->>'community' ILIKE %s ESCAPE '\\')")
+            pattern='%'+search.replace('!','!!').replace('%','!%').replace('_','!_')+'%'
+            clauses.append("(id ILIKE %s ESCAPE '!' OR data->>'name' ILIKE %s ESCAPE '!' OR data->>'community' ILIKE %s ESCAPE '!')")
             values.extend((pattern,pattern,pattern))
         period = {}
         for key in ('date_from','date_to'):
