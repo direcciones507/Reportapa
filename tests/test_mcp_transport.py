@@ -30,6 +30,15 @@ class MCPTransportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertIn("WWW-Authenticate", response.headers)
 
+    def test_oauth_probe_without_content_type_gets_challenge(self):
+        response = self.client.post("/mcp", content=b"")
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("resource_metadata=", response.headers["WWW-Authenticate"])
+
+    def test_oauth_probe_with_wrong_content_type_gets_challenge(self):
+        response = self.client.post("/mcp", content=b"{}", headers={"Content-Type": "text/plain"})
+        self.assertEqual(response.status_code, 401)
+
     @patch("app.mcp_oauth.verify_mcp_access_token", return_value={"sub": "test"})
     def test_tool_discovery(self, _verify):
         response = self.rpc("tools/list")
