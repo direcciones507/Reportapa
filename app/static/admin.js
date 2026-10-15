@@ -86,7 +86,7 @@ document.querySelector('#reset-filters').onclick=()=>{document.querySelector('#f
 document.querySelector('#prev').onclick=()=>{page--;load();};document.querySelector('#next').onclick=()=>{page++;load();};document.querySelector('#logout').onclick=async()=>{try{await api('/api/admin/logout',{method:'POST'});location.reload();}catch(e){message.textContent=e.message;}};
 fetch('/api/config').then(r=>r.json()).then(c=>[...c.needs,'No especificada'].forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;document.querySelector('[name=need]').append(o);}));api('/api/admin/session').then(r=>opened(r.csrf)).catch(()=>{});
 
-function renderHelp(r,parent,management){
+function renderHelp(r,parent,management=parent){
   const box=document.createElement('section');box.className='report-followup';parent.append(box);
   const heading=text('h3','Ayuda: '+ReportaFollowup.states[r.estado_ayuda],box);
   if(['pendiente_confirmar','sin_ayuda'].includes(r.estado_ayuda))heading.className='help-attention';
