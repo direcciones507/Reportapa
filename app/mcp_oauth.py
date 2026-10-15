@@ -18,7 +18,7 @@ def verify_mcp_access_token(token: str) -> dict:
     The configured identity provider must enforce token revocation, or issue
     short-lived access tokens. No unsigned tokens or symmetric JWTs are accepted.
     """
-    issuer = os.getenv("REPORTAPA_OAUTH_ISSUER", "").rstrip("/")
+    issuer = os.getenv("REPORTAPA_OAUTH_ISSUER", "").strip()
     audience = os.getenv("REPORTAPA_OAUTH_AUDIENCE", "")
     jwks_url = os.getenv("REPORTAPA_OAUTH_JWKS_URL", "")
     if not issuer or not audience or not jwks_url:
