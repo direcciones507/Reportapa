@@ -273,7 +273,14 @@ async def submit_integrated_report(request: Request):
         raise HTTPException(401, 'Credenciales de integración inválidas')
     if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
         raise HTTPException(415, 'Se requiere JSON')
-    raw = await request.json()
+    if request.headers.get('content-length', '0').isdigit() and int(request.headers.get('content-length', '0')) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    if len(await request.body()) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    try:
+        raw = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, 'JSON inválido')
     if not isinstance(raw, dict):
         raise HTTPException(422, 'Se requiere un objeto JSON')
     try:
@@ -590,3 +597,137 @@ def export(kind: str, request: Request, token=Depends(admin)):
 # Register isolated aid-delivery endpoints after existing dependencies are defined.
 from .aid_delivery import install as install_aid_delivery
 install_aid_delivery(app, db, admin, limit, signing, json_payload)
+
+
+@app.post('/mcp')
+async def mcp_transport(request: Request):
+    """Authenticated MCP JSON-RPC entry point; writes remain disabled."""
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+        raise HTTPException(415, 'Se requiere JSON')
+    if len(await request.body()) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
+    from .mcp_oauth import verify_mcp_access_token
+    from jwt.exceptions import InvalidTokenError, PyJWKClientError
+    supplied = request.headers.get('authorization', '')
+    challenge = (
+        'Bearer realm="ReportaPA", error="invalid_token", '
+        'resource_metadata="https://reportapa.online/.well-known/oauth-protected-resource"'
+    )
+    if not supplied.startswith('Bearer '):
+        return JSONResponse({'error': 'Autenticación requerida'}, status_code=401,
+                            headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
+    try:
+        verify_mcp_access_token(supplied[7:])
+    except RuntimeError:
+        raise HTTPException(503, 'Proveedor OAuth no configurado')
+    except (InvalidTokenError, PyJWKClientError, ValueError):
+        return JSONResponse({'error': 'Token inválido'}, status_code=401,
+                            headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
+    try:
+        payload = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, 'JSON inválido')
+    if not isinstance(payload, dict) or payload.get('jsonrpc') != '2.0':
+        raise HTTPException(422, 'JSON-RPC 2.0 requerido')
+    method = payload.get('method')
+    request_id = payload.get('id')
+    if method == 'notifications/initialized':
+        return Response(status_code=202)
+    if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+        raise HTTPException(422, 'Identificador JSON-RPC inválido')
+    if method == 'initialize':
+        result = {
+            'protocolVersion': '2025-03-26',
+            'capabilities': {'tools': {'listChanged': False}},
+            'serverInfo': {'name': 'ReportaPA', 'version': '0.1.0'},
+        }
+    elif method == 'ping':
+        result = {}
+    elif method == 'tools/list':
+        from .mcp_contract import REGISTER_REPORT_TOOL
+        result = {'tools': [REGISTER_REPORT_TOOL]}
+    elif method == 'tools/call':
+        from .mcp_contract import REGISTER_REPORT_TOOL
+        params = payload.get('params')
+        if not isinstance(params, dict) or params.get('name') != REGISTER_REPORT_TOOL['name']:
+            return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                 'error': {'code': -32602, 'message': 'Herramienta desconocida'}},
+                                headers={'Cache-Control': 'no-store'})
+        raw = params.get('arguments')
+        schema = REGISTER_REPORT_TOOL['inputSchema']
+        if (not isinstance(raw, dict) or set(raw) - set(schema['properties'])
+                or any(k not in raw for k in schema['required'])
+                or any(not isinstance(raw[k], str) or not raw[k].strip()
+                       for k in schema['required'] if k not in ('needs', 'total_people'))
+                or not isinstance(raw.get('total_people'), int)
+                or isinstance(raw.get('total_people'), bool)
+                or not 1 <= raw['total_people'] <= 1000
+                or not isinstance(raw.get('needs'), list)
+                or any(not isinstance(n, str) for n in raw['needs'])):
+            return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                 'error': {'code': -32602, 'message': 'Argumentos inválidos'}},
+                                headers={'Cache-Control': 'no-store'})
+        try:
+            key = str(uuid.UUID(raw['idempotency_key']))
+            if raw['consent'] != 'yes':
+                raise ValueError('Consentimiento requerido')
+            data = validate(raw, allow_missing_family=True)
+            fields = [(k, str(v)) for k, v in raw.items()
+                      if isinstance(v, (str, int, float)) and k != 'needs']
+            fields.extend(('needs', n) for n in data['needs'])
+            form = FormData(fields)
+            saved = await run_in_threadpool(persist_report, request, form, key, data)
+            if isinstance(saved, JSONResponse):
+                return JSONResponse({'jsonrpc': '2.0', 'id': request_id,
+                                     'result': {'isError': True, 'content': [
+                                         {'type': 'text', 'text': 'Posible duplicado; requiere confirmación adicional.'}]}},
+                                    headers={'Cache-Control': 'no-store'})
+            if not isinstance(saved, dict) or not saved.get('id'):
+                raise RuntimeError('No se recibió confirmación de almacenamiento')
+            result = {'content': [{'type': 'text', 'text':
+                                   'Reporte registrado. Número oficial: ' + str(saved['id'])}],
+                      'structuredContent': {'id': saved['id']}}
+        except (HTTPException, ValueError) as exc:
+            message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            result = {'isError': True, 'content': [{'type': 'text', 'text': str(message)}]}
+        except (PoolTimeout, TooManyRequests, psycopg.OperationalError,
+                psycopg.errors.QueryCanceled, psycopg.errors.LockNotAvailable):
+            result = {'isError': True, 'content': [{'type': 'text', 'text':
+                                                   'Servicio ocupado. Reintente con la misma clave de envío.'}]}
+        return JSONResponse({'jsonrpc': '2.0', 'id': request_id, 'result': result},
+                            headers={'Cache-Control': 'no-store'})
+    else:
+        return JSONResponse({
+            'jsonrpc': '2.0', 'id': request_id,
+            'error': {'code': -32601, 'message': 'Método no disponible'},
+        }, headers={'Cache-Control': 'no-store'})
+    return JSONResponse({'jsonrpc': '2.0', 'id': request_id, 'result': result},
+                        headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/mcp')
+async def mcp_transport_get():
+    """MCP transport does not support unauthenticated streaming."""
+    return Response(status_code=405, headers={'Allow': 'POST'})
+
+
+
+@app.get('/.well-known/oauth-protected-resource')
+@app.get('/.well-known/oauth-protected-resource/mcp')
+async def mcp_oauth_resource_metadata():
+    """RFC 9728 discovery, advertised only after an issuer is configured."""
+    issuer = os.getenv('REPORTAPA_OAUTH_ISSUER', '').strip()
+    if not issuer:
+        raise HTTPException(503, 'OAuth todavía no configurado')
+    parsed = urlparse(issuer)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment or parsed.query:
+        raise HTTPException(503, 'Configuración OAuth inválida')
+    return JSONResponse(
+        {
+            'resource': 'https://reportapa.online/mcp',
+            'authorization_servers': [issuer.rstrip('/')],
+            'scopes_supported': ['reportapa:reports:create'],
+            'bearer_methods_supported': ['header'],
+        },
+        headers={'Cache-Control': 'no-store'},
+    )

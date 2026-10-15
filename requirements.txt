@@ -6,3 +6,5 @@ Pillow==11.3.0
 python-multipart==0.0.22
 reportlab==4.4.3
 psycopg_pool==3.2.6
+
+PyJWT[crypto]==2.10.1
