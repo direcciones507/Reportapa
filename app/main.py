@@ -602,10 +602,8 @@ install_aid_delivery(app, db, admin, limit, signing, json_payload)
 @app.post('/mcp')
 async def mcp_transport(request: Request):
     """Authenticated MCP JSON-RPC entry point; writes remain disabled."""
-    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
-        raise HTTPException(415, 'Se requiere JSON')
-    if len(await request.body()) > 32768:
-        raise HTTPException(413, 'Solicitud demasiado grande')
+    # OAuth discovery probes may POST without JSON; challenge first so ChatGPT
+    # can discover the authorization server rather than receiving HTTP 415.
     from .mcp_oauth import verify_mcp_access_token
     from jwt.exceptions import InvalidTokenError, PyJWKClientError
     supplied = request.headers.get('authorization', '')
@@ -623,6 +621,10 @@ async def mcp_transport(request: Request):
     except (InvalidTokenError, PyJWKClientError, ValueError):
         return JSONResponse({'error': 'Token inválido'}, status_code=401,
                             headers={'WWW-Authenticate': challenge, 'Cache-Control': 'no-store'})
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/json':
+        raise HTTPException(415, 'Se requiere JSON')
+    if len(await request.body()) > 32768:
+        raise HTTPException(413, 'Solicitud demasiado grande')
     try:
         payload = await request.json()
     except (ValueError, UnicodeDecodeError):
