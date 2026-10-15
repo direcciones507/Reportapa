@@ -403,6 +403,12 @@ def rows(request, all_rows=False, page=None):
                 clauses.append("coalesce(nullif(btrim(data->>%s),''),'No especificada')=%s"); values.append(key)
             else: clauses.append('data->>%s = %s'); values.append(key)
             values.append(value)
+        search=request.query_params.get('search','').strip()
+        if len(search)>120: raise HTTPException(422,'Búsqueda demasiado larga')
+        if search:
+            pattern='%'+search.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+            clauses.append("(id ILIKE %s ESCAPE '\\' OR data->>'name' ILIKE %s ESCAPE '\\' OR data->>'community' ILIKE %s ESCAPE '\\')")
+            values.extend((pattern,pattern,pattern))
         period = {}
         for key in ('date_from','date_to'):
             value = request.query_params.get(key,'').strip()
