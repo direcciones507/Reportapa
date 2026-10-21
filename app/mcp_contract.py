@@ -23,6 +23,7 @@ REGISTER_REPORT_TOOL = {
             "idempotency_key": {"type": "string", "format": "uuid"},
             "consent": {"type": "string", "enum": ["yes"]},
             "name": {"type": "string", "minLength": 1},
+            "cedula": {"type": "string", "maxLength": 20, "description": "Opcional. Número de cédula del responsable, con guiones."},
             "phone": {"type": "string", "minLength": 7},
             "province": {"type": "string", "minLength": 1},
             "district": {"type": "string", "minLength": 1},
@@ -46,3 +47,4 @@ REGISTER_REPORT_TOOL = {
         },
     },
 }
+
