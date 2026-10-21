@@ -75,6 +75,8 @@ async def lifespan(app):
         c.execute("SELECT pg_advisory_xact_lock(hashtextextended('reportapa-migrations',2))")
         for migration in sorted((ROOT.parent/'migrations').glob('*.sql')):
             c.execute(migration.read_text())
+            if migration.name == '008_responsible_cedula.sql':
+                logger.info('migration_checked name=%s', migration.name)
     # Photo storage may fail independently of the family database.
     # Backfill matching keys from real legacy data; do not invent household counts.
     with db() as c:
@@ -189,6 +191,13 @@ def validate(raw, allow_missing_family=False):
     needs = raw.get('needs',[])
     if not isinstance(needs,list) or any(n not in NEEDS for n in needs): raise HTTPException(422,'Necesidad inválida')
     data['needs'] = list(dict.fromkeys(needs))
+    cedula = raw.get('cedula')
+    if cedula is not None:
+        if not isinstance(cedula, str): raise HTTPException(422,'Número de cédula inválido')
+        cedula = cedula.strip().upper()
+        if cedula and not re.fullmatch(r'[A-Z0-9]{1,6}-[0-9]{1,6}-[0-9]{1,6}', cedula):
+            raise HTTPException(422,'Número de cédula inválido; use tres grupos separados por guiones (ejemplo: 8-123-456)')
+        if cedula: data['cedula'] = cedula
     mode=str(raw.get('reporting_for_self','yes')).strip()
     if mode not in ('yes','no'): raise HTTPException(422,'Indique quién realiza el reporte')
     reporter=str(raw.get('reporter_name','')).strip()
@@ -739,3 +748,4 @@ async def mcp_oauth_resource_metadata():
         },
         headers={'Cache-Control': 'no-store'},
     )
+

@@ -102,7 +102,7 @@ from pypdf import PdfReader
 def test_help_excel_privacy(data):
     report=dict(id='RPA-00000001',created_at=datetime.now(timezone.utc),data=m.validate(data),status='visitado',estado_ayuda='parcial',ayuda_actualizada_at=datetime.now(timezone.utc),ayuda_observacion='=CONFIDENTIAL_NOTE')
     wb=load_workbook(io.BytesIO(m.workbook([report],'todos')))
-    values=list(wb['Detalle de reportes'].values);assert values[1][-3]=='Ayuda parcial';assert values[1][-1]=='=CONFIDENTIAL_NOTE';assert wb['Detalle de reportes'].cell(2,len(values[0])).data_type=='s'
+    values=list(wb['Detalle de reportes'].values);headers=values[0];assert values[1][headers.index('Estado de ayuda')]=='Ayuda parcial';note_column=headers.index('Observación de seguimiento');assert values[1][note_column]=='=CONFIDENTIAL_NOTE';assert wb['Detalle de reportes'].cell(2,note_column+1).data_type=='s'
     anon=load_workbook(io.BytesIO(m.workbook([report],'todos',True)))
     text=str(list(anon['Detalle de reportes'].values));assert 'CONFIDENTIAL_NOTE' not in text;assert 'Ayuda parcial' in text;assert '61234567' not in text
 
@@ -224,3 +224,4 @@ def test_production_configuration_guard(monkeypatch,tmp_path):
     with pytest.raises(RuntimeError,match='volumen'): m.validate_runtime()
     monkeypatch.setenv('PHOTO_DIR',str(tmp_path/'photos'));monkeypatch.setenv('COOKIE_SECURE','false')
     with pytest.raises(RuntimeError,match='HTTPS'): m.validate_runtime()
+

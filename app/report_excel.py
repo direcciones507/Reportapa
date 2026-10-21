@@ -174,7 +174,7 @@ def statistical_workbook(records, filters, help_states, anonymous=False, include
             'Descripción de daños', 'Necesidades', 'Detalle de necesidades', 'Estado',
             'Nombre de familia', 'Total de personas afectadas', *COUNT_FIELDS.values(),
             'Reporte realizado por', 'Latitud', 'Longitud', 'Archivado', 'Estado de ayuda',
-            'Fecha del último seguimiento', 'Observación de seguimiento']
+            'Fecha del último seguimiento', 'Observación de seguimiento', 'Número de cédula']
     else:
         columns = ['ID de reporte', 'Fecha', 'Provincia', 'Distrito', 'Corregimiento', 'Comunidad',
                    'Tipo de daño', 'Estado', 'Necesidades', 'Seguimiento', 'Estado de ayuda',
@@ -195,7 +195,7 @@ def statistical_workbook(records, filters, help_states, anonymous=False, include
                 d.get('damage', ''), supplied_needs, d.get('needs_detail', ''), r['status'],
                 d.get('family_name', ''), d.get('total_people'), *(d.get(k) for k in COUNT_FIELDS),
                 d.get('reporter_name') or d.get('name', ''), point.get('latitude'), point.get('longitude'),
-                'Sí' if r.get('archived_at') else 'No', help_label, updated, r.get('ayuda_observacion', '')]
+                'Sí' if r.get('archived_at') else 'No', help_label, updated, r.get('ayuda_observacion', ''), d.get('cedula', '')]
         else:
             loc = [d.get(k) or UNSPECIFIED for k in LOCATION_FIELDS]
             damage = d.get('damage_type') or UNSPECIFIED
@@ -218,3 +218,4 @@ def statistical_workbook(records, filters, help_states, anonymous=False, include
             for cell in row:
                 if isinstance(cell.value, str): cell.data_type = 's'
     out = io.BytesIO(); wb.save(out); return out.getvalue()
+
