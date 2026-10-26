@@ -16,7 +16,7 @@ from reportlab.pdfgen import canvas
 from .individual_pdf import individual_pdf
 from .report_data import household, coordinates, matching_keys, COUNT_FIELDS
 from .photo_maintenance import cleanup_photos
-from .report_statistics import statistics, UNSPECIFIED
+from .report_statistics import statistics, UNSPECIFIED, tracking_group
 from .report_excel import statistical_workbook, PANAMA
 from datetime import date, datetime, time as datetime_time, timedelta
 
