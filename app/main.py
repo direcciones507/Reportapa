@@ -335,6 +335,8 @@ async def submit(request: Request):
         if form.get('website'): raise HTTPException(422,'Solicitud inválida')
         try: key = str(uuid.UUID(str(form.get('idempotency_key',''))))
         except ValueError: raise HTTPException(422,'Clave de envío inválida')
+        if str(form.get('province', '')).strip().casefold() != 'veraguas':
+            raise HTTPException(422, 'Este formulario solo está habilitado para la provincia de Veraguas.')
         raw = dict(form); raw['needs'] = form.getlist('needs'); data = validate(raw)
         if form.get('consent') != 'yes': raise HTTPException(422,'Debe autorizar el uso privado de los datos')
         return await run_in_threadpool(persist_report,request,form,key,data)
