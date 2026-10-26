@@ -30,8 +30,10 @@ function renderStatistics(stats,at){
    ['Con atención registrada',stats.tracking.attended],['Sin identificación familiar',stats.unidentified_family_reports],
    ['Viviendas únicas','No determinadas'],['Personas afectadas (declaradas)',stats.affected_people_reported ?? 'No disponible']].forEach(([label,value])=>{const item=document.createElement('div');totals.append(item);text('dt',label,item);text('dd',String(value),item);});
   text('p',stats.family_method,root);text('p',stats.attention_method,root);
-  text('h3','Comunidades (todos los reportes filtrados)',root);
-  const scroll=document.createElement('div');scroll.className='stat-scroll';root.append(scroll);
+  const communitiesPanel=document.createElement('details');communitiesPanel.className='admin-filter-panel';communitiesPanel.open=window.__communitiesExpanded===true;root.append(communitiesPanel);
+  const communitiesSummary=document.createElement('summary');communitiesSummary.textContent='Comunidades (todos los reportes filtrados) · Ver comunidades';communitiesPanel.append(communitiesSummary);
+  communitiesPanel.addEventListener('toggle',()=>{window.__communitiesExpanded=communitiesPanel.open;});
+  const scroll=document.createElement('div');scroll.className='stat-scroll';communitiesPanel.append(scroll);
   const table=document.createElement('table');scroll.append(table);const head=document.createElement('thead');table.append(head);
   const titles=document.createElement('tr');head.append(titles);
   ['Provincia','Distrito','Corregimiento','Comunidad','Reportes','Pendientes','En seguimiento','Atención registrada','Daños registrados','Necesidades registradas','Consultar'].forEach(t=>text('th',t,titles).scope='col');
