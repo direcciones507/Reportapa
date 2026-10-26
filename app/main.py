@@ -595,37 +595,54 @@ def export(kind: str, request: Request, token=Depends(admin)):
     records=rows(request,all_rows=kind=='master'); filters='Todos los reportes' if kind=='master' else json.dumps(dict(request.query_params),ensure_ascii=False)
     if kind=='registro':
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
-        wb=Workbook(); ws=wb.active; ws.title='Registro de reportes'
-        headers=['N.º de reporte','Fecha del reporte','Provincia','Distrito','Corregimiento','Comunidad / sector','Responsable del hogar','Cédula','Teléfono','Tipo de daño','Daños observados','Requiere evaluación técnica','Estado','Seguimiento','Necesidades','Estado de ayuda']
-        ws.append(['REPORTAPA | REGISTRO DE REPORTES'])
-        ws.append(['Registros filtrados: '+str(len(records))+' | Corte: '+datetime.now(PANAMA).strftime('%Y-%m-%d %H:%M')])
-        ws.append(['Filtros: '+filters]); ws.append(headers)
-        for report in records:
-            d=report['data']; needs=d.get('needs') or []
-            if not isinstance(needs,list): needs=[]
-            evaluation=d.get('requires_technical_evaluation')
-            evaluation='Sí' if evaluation is True else 'No' if evaluation is False else 'Por determinar'
-            values=[report['id'],report['created_at'].astimezone(PANAMA).strftime('%Y-%m-%d %H:%M'),
-                    d.get('province',''),d.get('district',''),d.get('township',''),d.get('community',''),
-                    d.get('name',''),d.get('cedula',''),d.get('phone',''),d.get('damage_type',''),
-                    d.get('damage',''),evaluation,report.get('status',''),tracking_group(report),
-                    ', '.join(str(n) for n in needs if isinstance(n,str)),report.get('estado_ayuda','')]
-            ws.append(values)
-            for cell in ws[ws.max_row]:
-                if isinstance(cell.value,str): cell.data_type='s'
-        ws.freeze_panes='G5'; ws.auto_filter.ref=f'A4:P{max(4,ws.max_row)}'
-        for cell in ws[4]:
-            cell.font=Font(bold=True,color='FFFFFF')
-            cell.fill=PatternFill('solid',fgColor='164F88')
-            cell.alignment=Alignment(wrap_text=True)
-        ws.row_dimensions[4].height=34
-        for col,width in enumerate([19,21,17,20,23,28,30,22,20,20,48,29,18,20,36,22],1):
-            ws.column_dimensions[get_column_letter(col)].width=width
+        wb=Workbook(); ws=wb.active; ws.title='Control de viviendas'
         ws.sheet_view.showGridLines=False
+        ws.merge_cells('A1:I1'); ws['A1']='JUNTA COMUNAL DE SANTIAGO'
+        ws.merge_cells('A2:I2'); ws['A2']='SERVICIO Y COMPROMISO  |  PROVINCIA DE VERAGUAS'
+        ws.merge_cells('A4:I4'); ws['A4']='Registro preliminar de afectaciones por vivienda. La evaluación estructural definitiva corresponde a personal competente.'
+        ws['A6']='Distrito:'; ws['B6']='Según filtros'
+        ws['C6']='Fecha:'; ws['D6']=datetime.now(PANAMA).strftime('%d/%m/%Y')
+        ws['F6']='Registros:'; ws['G6']=len(records)
+        ws['H6']='Período:'
+        ws['I6']=(request.query_params.get('date_from') or 'Inicio')+' a '+(request.query_params.get('date_to') or 'Hoy')
+        headers=['N.º caso','Distrito','Corregimiento','Comunidad / Sector','Responsable del hogar','Cédula','Teléfono','Daño observado','Fecha del reporte']
+        for col,label in enumerate(headers,1): ws.cell(8,col,label)
+        for number,report in enumerate(records,1):
+            d=report['data']
+            values=[report['id'],d.get('district',''),d.get('township',''),d.get('community',''),
+                    d.get('name',''),d.get('cedula',''),d.get('phone',''),d.get('damage',''),
+                    report['created_at'].astimezone(PANAMA).strftime('%d/%m/%Y')]
+            for col,value in enumerate(values,1):
+                cell=ws.cell(number+8,col,value if value is not None else '')
+                if isinstance(cell.value,str): cell.data_type='s'
+                cell.fill=PatternFill('solid',fgColor='101216')
+                cell.font=Font(name='Carlito',size=12,bold=True,color='FFFFFF')
+                cell.alignment=Alignment(vertical='center',wrap_text=True)
+                cell.border=Border(bottom=Side(style='hair',color='777777'))
+            ws.row_dimensions[number+8].height=35
+        for col,width in enumerate([20,22,24,39,37,23,23,60,22],1):
+            ws.column_dimensions[get_column_letter(col)].width=width
+        ws.row_dimensions[1].height=40; ws.row_dimensions[2].height=30; ws.row_dimensions[4].height=32
+        for row in (1,2,4):
+            cell=ws.cell(row,1)
+            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            cell.font=Font(name='Carlito',size=20 if row==1 else 12,bold=True,color='101216' if row==1 else 'FFFFFF')
+            cell.fill=PatternFill('solid',fgColor='FFFFFF' if row==1 else 'E6B71E' if row==2 else '222222')
+        for cell in ws[8]:
+            cell.font=Font(name='Carlito',size=12,bold=True,color='454545')
+            cell.fill=PatternFill('solid',fgColor='F3F6F8')
+            cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+        ws.row_dimensions[8].height=56
+        ws.freeze_panes='D9'; ws.auto_filter.ref=f'A8:I{max(8,ws.max_row)}'
+        ws.print_options.horizontalCentered=True
+        ws.sheet_properties.pageSetUpPr.fitToPage=True
+        ws.page_setup.orientation='landscape'; ws.page_setup.paperSize=ws.PAPERSIZE_A3
+        ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0
+        ws.print_title_rows='1:8'
         out=io.BytesIO(); wb.save(out)
-        filename='REPORTAPA_REGISTRO_'+datetime.now(PANAMA).strftime('%Y-%m-%d')+'.xlsx'
+        filename='REPORTAPA_LISTADO_PERSONAS_AFECTADAS_'+datetime.now(PANAMA).strftime('%Y-%m-%d')+'.xlsx'
         return Response(out.getvalue(),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         headers={'Content-Disposition':f'attachment; filename="{filename}"','Cache-Control':'no-store'})
     if kind=='summary':
