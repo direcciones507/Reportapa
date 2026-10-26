@@ -587,12 +587,47 @@ def workbook(records, filters, anonymous=False, include_personal=True):
     return statistical_workbook(records,filters,HELP_STATES,anonymous,include_personal)
 @app.get('/api/admin/export/{kind}')
 def export(kind: str, request: Request, token=Depends(admin)):
-    if kind not in ('master','area','anonymous','summary','erasures'): raise HTTPException(404)
+    if kind not in ('master','area','anonymous','summary','erasures','registro'): raise HTTPException(404)
     if kind=='erasures':
         with db() as c: ledger=c.execute('SELECT id,deleted_at FROM deleted_reports ORDER BY deleted_at').fetchall()
         content=json.dumps([{'id':r['id'],'deleted_at':r['deleted_at'].isoformat()} for r in ledger])
         return Response(content,media_type='application/json',headers={'Content-Disposition':'attachment; filename=REPORTAPA_ELIMINACIONES.json'})
     records=rows(request,all_rows=kind=='master'); filters='Todos los reportes' if kind=='master' else json.dumps(dict(request.query_params),ensure_ascii=False)
+    if kind=='registro':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        wb=Workbook(); ws=wb.active; ws.title='Registro de reportes'
+        headers=['N.º de reporte','Fecha del reporte','Provincia','Distrito','Corregimiento','Comunidad / sector','Responsable del hogar','Cédula','Teléfono','Tipo de daño','Daños observados','Requiere evaluación técnica','Estado','Seguimiento','Necesidades','Estado de ayuda']
+        ws.append(['REPORTAPA | REGISTRO DE REPORTES'])
+        ws.append(['Registros filtrados: '+str(len(records))+' | Corte: '+datetime.now(PANAMA).strftime('%Y-%m-%d %H:%M')])
+        ws.append(['Filtros: '+filters]); ws.append(headers)
+        for report in records:
+            d=report['data']; needs=d.get('needs') or []
+            if not isinstance(needs,list): needs=[]
+            evaluation=d.get('requires_technical_evaluation')
+            evaluation='Sí' if evaluation is True else 'No' if evaluation is False else 'Por determinar'
+            values=[report['id'],report['created_at'].astimezone(PANAMA).strftime('%Y-%m-%d %H:%M'),
+                    d.get('province',''),d.get('district',''),d.get('township',''),d.get('community',''),
+                    d.get('name',''),d.get('cedula',''),d.get('phone',''),d.get('damage_type',''),
+                    d.get('damage',''),evaluation,report.get('status',''),tracking_group(report),
+                    ', '.join(str(n) for n in needs if isinstance(n,str)),report.get('estado_ayuda','')]
+            ws.append(values)
+            for cell in ws[ws.max_row]:
+                if isinstance(cell.value,str): cell.data_type='s'
+        ws.freeze_panes='G5'; ws.auto_filter.ref=f'A4:P{max(4,ws.max_row)}'
+        for cell in ws[4]:
+            cell.font=Font(bold=True,color='FFFFFF')
+            cell.fill=PatternFill('solid',fgColor='164F88')
+            cell.alignment=Alignment(wrap_text=True)
+        ws.row_dimensions[4].height=34
+        for col,width in enumerate([19,21,17,20,23,28,30,22,20,20,48,29,18,20,36,22],1):
+            ws.column_dimensions[get_column_letter(col)].width=width
+        ws.sheet_view.showGridLines=False
+        out=io.BytesIO(); wb.save(out)
+        filename='REPORTAPA_REGISTRO_'+datetime.now(PANAMA).strftime('%Y-%m-%d')+'.xlsx'
+        return Response(out.getvalue(),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        headers={'Content-Disposition':f'attachment; filename="{filename}"','Cache-Control':'no-store'})
     if kind=='summary':
         out=io.BytesIO(); pdf=canvas.Canvas(out); y=790
         for line in ['ReportaPA - resumen anonimizado',time.strftime('Fecha de corte: %Y-%m-%d'),f'Total de registros: {len(records)}']:
